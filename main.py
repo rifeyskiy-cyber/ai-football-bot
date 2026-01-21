@@ -4,14 +4,13 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import google.generativeai as genai
 
-# Твои ключи
-TELEGRAM_TOKEN = "8464793187:AAFqwp0ec_ZOIOd4Jq-AkW-CaiTiDI4PcIo"
+# === ТВОИ КЛЮЧИ (ПРОВЕРЬ ИХ ТЩАТЕЛЬНО) ===
+TELEGRAM_TOKEN = "8464793187:AAElLO8K5Y8zG5SDs2TYqOYfkFrhuupzy6o"
 GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
+# ========================================
 
-# Настройка ИИ с ПРАВИЛЬНЫМ именем модели
+# Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-# Попробуем БЕЗ приставки models/ если не работало с ней, или С ней. 
-# Самый надежный вариант сейчас:
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -19,11 +18,10 @@ dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    await message.answer("🤖 Бот ожил! Я тебя слышу. Напиши название матча.")
+    await message.answer("✅ Бот запущен! Напиши матч, и я дам прогноз.")
 
 @dp.message()
 async def handle_message(message: types.Message):
-    print(f"Получено сообщение: {message.text}") # Это появится в логах Koyeb
     try:
         await bot.send_chat_action(message.chat.id, "typing")
         prompt = f"Дай краткий футбольный прогноз на матч: {message.text}"
@@ -32,16 +30,19 @@ async def handle_message(message: types.Message):
         if response and response.text:
             await message.answer(response.text)
         else:
-            await message.answer("ИИ прислал пустой ответ.")
+            await message.answer("ИИ не смог сформировать ответ.")
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-        # Бот напишет тебе в чат, какая именно ошибка произошла!
-        await message.answer(f"⚠️ Ошибка ИИ: {str(e)}")
+        await message.answer(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
-    # ГАРАНТИРОВАННО СБРАСЫВАЕМ ВСЕ СТАРЫЕ СВЯЗИ
-    await bot.delete_webhook(drop_pending_updates=True)
-    print(">>> СВЯЗЬ С TELEGRAM УСТАНОВЛЕНА <<<")
+    # Эта строка решает проблему Conflict и Unauthorized при перезапуске
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Ошибка при удалении вебхука: {e}")
+        
+    print(">>> БОТ ВКЛЮЧЕН <<<")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
