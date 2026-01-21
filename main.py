@@ -36,14 +36,12 @@ async def handle_message(message: types.Message):
         await message.answer(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
-    # Эта строка решает проблему Conflict и Unauthorized при перезапуске
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        print(f"Ошибка при удалении вебхука: {e}")
-        
-    print(">>> БОТ ВКЛЮЧЕН <<<")
+    # Сначала очищаем всё!
+    await bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(1) # Даем секунду на передышку
+    print(">>> БОТ ВКЛЮЧЕН И ОЧИЩЕН <<<")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
