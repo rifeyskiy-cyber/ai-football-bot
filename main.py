@@ -4,44 +4,38 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import google.generativeai as genai
 
-# === ТВОИ ПРОВЕРЕННЫЕ КЛЮЧИ ===
-TELEGRAM_TOKEN = "8464793187:AAFBxGo_29XvDp543IPsPydWC6D0xR4qDd0"
+# === ВСТАВЬ ТОЧНЫЙ ТОКЕН НИЖЕ ===
+TELEGRAM_TOKEN = "8464793187:AAFBxGo_29XvDp543IPsPydWC6D0xR4qDd0" # ПРОВЕРЬ ЭТОТ ТОКЕН ЕЩЕ РАЗ
 GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
-# ==============================
+# ===============================
 
-# Настройка актуальной модели Gemini
+# Настройка Gemini 1.5 (исправлено с gemini-pro)
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Инициализация бота
+# Инициализация
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    await message.answer("✅ Бот готов! Напиши название матча, и я проанализирую его через Gemini 1.5.")
+    await message.answer("✅ Бот работает! Напиши матч для прогноза.")
 
 @dp.message()
 async def handle_message(message: types.Message):
     try:
-        # Показываем, что бот думает
         await bot.send_chat_action(message.chat.id, "typing")
-        
-        prompt = f"Проанализируй футбольный матч и дай краткий прогноз: {message.text}"
+        prompt = f"Дай краткий футбольный прогноз на матч: {message.text}"
         response = model.generate_content(prompt)
-        
-        if response.text:
-            await message.answer(response.text)
-        else:
-            await message.answer("К сожалению, не удалось получить ответ от ИИ.")
+        await message.answer(response.text if response.text else "ИИ не ответил.")
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await message.answer("Произошла ошибка при обращении к ИИ. Попробуй позже.")
+        logging.error(f"Ошибка ИИ: {e}")
+        await message.answer("Ошибка в работе ИИ.")
 
 async def main():
-    # Очищаем очередь старых сообщений, чтобы не было конфликтов
+    # Эта строка ОЧЕНЬ важна, она убирает старые ошибки подключения
     await bot.delete_webhook(drop_pending_updates=True)
-    print(">>> БОТ ЗАПУЩЕН НА GEMINI 1.5 FLASH <<<")
+    print(">>> БОТ ЗАПУЩЕН И ГОТОВ <<<")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
