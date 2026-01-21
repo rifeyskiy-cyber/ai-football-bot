@@ -1,50 +1,35 @@
+import logging
 import asyncio
-import aiohttp
-import google.generativeai as genai
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.client.session.aiohttp import AiohttpSession
+import google.generativeai as genai
 
-# --- ТВОИ КЛЮЧИ ---
-TELEGRAM_TOKEN = "8464793187:AAFqwp0ec_ZOIOd4Jq-AkW-CaiTiDI4PcIo"
-FOOTBALL_API_KEY = "c30951a5dcb846ba9d692fe43e8120c4"
-GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
+# Настройки
+TELEGRAM_TOKEN = "ТВОЙ_ТОКЕН_ТУТ"
+GEMINI_API_KEY = "ТВОЙ_КЛЮЧ_GEMINI_ТУТ"
 
-# Настройка прокси для PythonAnywhere
-proxy_url = "http://proxy.server:3128"
-session = AiohttpSession(proxy=proxy_url)
-
-# Настройка Gemini
+# Настройка ИИ
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-pro')
 
-# Исправленные объекты (только на английском!)
-bot = Bot(token=TELEGRAM_TOKEN, session=session)
+# Инициализация бота БЕЗ ПРОКСИ
+bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-async def get_ai_prediction(match_info):
-    prompt = f"Ты эксперт. Проанализируй матч: {match_info}. Дай прогноз на русском."
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Ошибка ИИ: {e}"
-
 @dp.message(Command("start"))
-async def start(m: types.Message):
-    await m.answer("✅ ИИ-Бот готов! Нажми /predict")
+async def start_command(message: types.Message):
+    await message.answer("Привет! Я футбольный аналитик на базе ИИ. Напиши мне название матча, и я дам прогноз.")
 
-@dp.message(Command("predict"))
-async def predict(m: types.Message):
-    await m.answer("🤖 ИИ думает...")
-    # Для теста берем фиксированную пару, пока настраиваем связь
-    res = await get_ai_prediction("Реал Мадрид против Барселоны")
-    await m.answer(f"📊 Анализ:\n{res}")
+@dp.message()
+async def handle_message(message: types.Message):
+    prompt = f"Проанализируй футбольный матч и дай прогноз: {message.text}"
+    response = model.generate_content(prompt)
+    await message.answer(response.text)
 
 async def main():
-    print(">>> БОТ ЗАПУЩЕН <<<")
+    print(">>> BOT IS RUNNING ON KOYEB <<<")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
+    
