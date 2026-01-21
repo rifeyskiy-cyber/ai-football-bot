@@ -11,8 +11,7 @@ GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
 
 # Настройка Gemini 1.5 (исправлено с gemini-pro)
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
+model = genai.GenerativeModel('models/gemini-1.5-flash')
 # Инициализация
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
