@@ -4,37 +4,44 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import google.generativeai as genai
 
-# === ВСТАВЬ ТОЧНЫЙ ТОКЕН НИЖЕ ===
-TELEGRAM_TOKEN = "8464793187:AAElLO8K5Y8zG5SDs2TYqOYfkFrhuupzy6o" # ПРОВЕРЬ ЭТОТ ТОКЕН ЕЩЕ РАЗ
+# Твои ключи
+TELEGRAM_TOKEN = "8464793187:AAFqwp0ec_ZOIOd4Jq-AkW-CaiTiDI4PcIo"
 GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
-# ===============================
 
-# Настройка Gemini 1.5 (исправлено с gemini-pro)
+# Настройка ИИ с ПРАВИЛЬНЫМ именем модели
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('models/gemini-1.5-flash')
-# Инициализация
+# Попробуем БЕЗ приставки models/ если не работало с ней, или С ней. 
+# Самый надежный вариант сейчас:
+model = genai.GenerativeModel('gemini-1.5-flash')
+
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    await message.answer("✅ Бот работает! Напиши матч для прогноза.")
+    await message.answer("🤖 Бот ожил! Я тебя слышу. Напиши название матча.")
 
 @dp.message()
 async def handle_message(message: types.Message):
+    print(f"Получено сообщение: {message.text}") # Это появится в логах Koyeb
     try:
         await bot.send_chat_action(message.chat.id, "typing")
         prompt = f"Дай краткий футбольный прогноз на матч: {message.text}"
         response = model.generate_content(prompt)
-        await message.answer(response.text if response.text else "ИИ не ответил.")
+        
+        if response and response.text:
+            await message.answer(response.text)
+        else:
+            await message.answer("ИИ прислал пустой ответ.")
     except Exception as e:
-        logging.error(f"Ошибка ИИ: {e}")
-        await message.answer("Ошибка в работе ИИ.")
+        logging.error(f"Ошибка: {e}")
+        # Бот напишет тебе в чат, какая именно ошибка произошла!
+        await message.answer(f"⚠️ Ошибка ИИ: {str(e)}")
 
 async def main():
-    # Эта строка ОЧЕНЬ важна, она убирает старые ошибки подключения
+    # ГАРАНТИРОВАННО СБРАСЫВАЕМ ВСЕ СТАРЫЕ СВЯЗИ
     await bot.delete_webhook(drop_pending_updates=True)
-    print(">>> БОТ ЗАПУЩЕН И ГОТОВ <<<")
+    print(">>> СВЯЗЬ С TELEGRAM УСТАНОВЛЕНА <<<")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
