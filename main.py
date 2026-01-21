@@ -12,7 +12,7 @@ FOOTBALL_API_KEY = "c30951a5dcb846ba9d692fe43e8120c4" # Сохранили на 
 
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Инициализация бота БЕЗ прокси (для Koyeb)
 bot = Bot(token=TELEGRAM_TOKEN)
