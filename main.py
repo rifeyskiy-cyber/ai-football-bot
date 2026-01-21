@@ -5,7 +5,7 @@ from aiogram.filters import Command
 import google.generativeai as genai
 
 # === ВСТАВЬ ТОЧНЫЙ ТОКЕН НИЖЕ ===
-TELEGRAM_TOKEN = "8464793187:AAFBxGo_29XvDp543IPsPydWC6D0xR4qDd0" # ПРОВЕРЬ ЭТОТ ТОКЕН ЕЩЕ РАЗ
+TELEGRAM_TOKEN = "8464793187:AAElLO8K5Y8zG5SDs2TYqOYfkFrhuupzy6o" # ПРОВЕРЬ ЭТОТ ТОКЕН ЕЩЕ РАЗ
 GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
 # ===============================
 
