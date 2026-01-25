@@ -16,37 +16,35 @@ dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("✅ Бот онлайн! Напиши матч.")
+    await message.answer("⚽️ Бот ожил! Напиши матч.")
 
 @dp.message()
 async def handle_msg(message: types.Message):
     try:
         await bot.send_chat_action(message.chat.id, "typing")
         
-        # Самый простой вызов без префиксов
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # ЭТОТ СПОСОБ ВЫЗОВА САМЫЙ СТАБИЛЬНЫЙ
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
         
-        # Мы добавляем проверку безопасности, чтобы ИИ не молчал
-        response = model.generate_content(
-            f"Дай прогноз на футбол: {message.text}",
-            generation_config=genai.types.GenerationConfig(candidate_count=1)
-        )
+        # Запрашиваем контент
+        response = model.generate_content(f"Ты футбольный аналитик. Дай краткий прогноз на матч: {message.text}")
         
-        if response.text:
+        # Проверяем наличие текста в ответе
+        if response and response.text:
             await message.answer(response.text)
         else:
-            await message.answer("⚠️ ИИ не выдал ответ. Попробуй другой матч.")
+            await message.answer("⚠️ ИИ не смог сгенерировать текст. Попробуй другой матч.")
             
     except Exception as e:
-        # Если снова 404, пробуем альтернативный метод
+        # Если снова будет ошибка, мы увидим её точный текст
         await message.answer(f"❌ Ошибка ИИ: {str(e)}")
 
 async def main():
-    # ЖЕСТКИЙ СБРОС КОНФЛИКТА
+    # Очистка очереди перед стартом
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Пауза для сброса сессии...")
-    await asyncio.sleep(7) 
-    print(">>> ЗАПУСК <<<")
+    # Даем паузу, чтобы избежать ошибки Conflict
+    await asyncio.sleep(5)
+    print(">>> БОТ ЗАПУЩЕН <<<")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
