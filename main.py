@@ -6,7 +6,7 @@ from aiogram.filters import Command
 
 # ТОКЕНЫ
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
-AI_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
+AI_KEY = "AIzaSyCxbp-5hb2S8gQAgocG00Yak4n_D-Oq5VQ"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
