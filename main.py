@@ -4,46 +4,58 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import google.generativeai as genai
 
-# === ТВОИ КЛЮЧИ ===
-TELEGRAM_TOKEN = "8464793187:AAHqvRHl9u_cFxyMPzPMCyvb_hDNgvQ-AIcY"
+# === ТВОИ ОБНОВЛЕННЫЕ КЛЮЧИ ===
+TELEGRAM_TOKEN = "8464793187:AAGJTmJaiO5mHSaEq_D3cs_Owa7IQStk1sc"
 GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
-# ==================
+# ==============================
 
+# Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-# Используем максимально простую инициализацию модели
-model = genai.GenerativeModel('models/gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    await message.answer("✅ БОТ ОЖИЛ! Напиши матч.")
+    await message.answer("✅ Бот успешно перезапущен с новым токеном! Жду название матча.")
 
 @dp.message()
 async def handle_message(message: types.Message):
     try:
         await bot.send_chat_action(message.chat.id, "typing")
-        prompt = f"Дай краткий прогноз на матч: {message.text}"
+        
+        prompt = f"Ты футбольный эксперт. Дай краткий прогноз на матч: {message.text}. Кто победит?"
         response = model.generate_content(prompt)
         
-        # Если ИИ ответил, отправляем текст. Если нет - пишем об этом.
         if response and response.text:
             await message.answer(response.text)
         else:
-            await message.answer("⚠️ ИИ получил запрос, но не смог сформулировать текст.")
+            await message.answer("⚠️ ИИ задумался, но не дал ответа. Попробуй еще раз.")
             
     except Exception as e:
-        # Если случится любая ошибка, бот ПРИШЛЕТ её тебе в Telegram!
-        await message.answer(f"❌ Ошибка ИИ: {str(e)}")
+        # В случае ошибки бот сообщит детали
+        logging.error(f"Ошибка: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
 async def main():
-    # ОЧЕНЬ ВАЖНО: Удаляем вебхук перед запуском
-    await bot.delete_webhook(drop_pending_updates=True)
-    print(">>> БОТ ЗАПУЩЕН С ЧИСТОГО ЛИСТА <<<")
+    # 1. Удаляем вебхук, чтобы сбросить старые ошибки Conflict
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        print(">>> Вебхук удален, очередь очищена <<<")
+    except Exception as e:
+        print(f"Ошибка очистки вебхука (не страшно): {e}")
+
+    # 2. Ждем пару секунд, чтобы Telegram принял новое соединение
+    await asyncio.sleep(2)
+
+    print(">>> БОТ ЗАПУЩЕН И ГОТОВ <<<")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Критическая ошибка запуска: {e}")
         
