@@ -11,7 +11,7 @@ GEMINI_API_KEY = "AIzaSyAAXH0yNGu3l1fae7p5hXNLpASW2ydt1Ns"
 
 genai.configure(api_key=GEMINI_API_KEY)
 # Используем максимально простую инициализацию модели
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('models/gemini-1.5-flash')
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
@@ -24,13 +24,18 @@ async def start_command(message: types.Message):
 async def handle_message(message: types.Message):
     try:
         await bot.send_chat_action(message.chat.id, "typing")
-        # Добавляем инструкцию для ИИ, чтобы он отвечал короче
-        prompt = f"Ты футбольный аналитик. Дай прогноз на матч: {message.text}. Ответь кратко."
+        prompt = f"Дай краткий прогноз на матч: {message.text}"
         response = model.generate_content(prompt)
-        await message.answer(response.text)
+        
+        # Если ИИ ответил, отправляем текст. Если нет - пишем об этом.
+        if response and response.text:
+            await message.answer(response.text)
+        else:
+            await message.answer("⚠️ ИИ получил запрос, но не смог сформулировать текст.")
+            
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await message.answer("Бот получил сообщение, но ИИ временно недоступен. Попробуй позже.")
+        # Если случится любая ошибка, бот ПРИШЛЕТ её тебе в Telegram!
+        await message.answer(f"❌ Ошибка ИИ: {str(e)}")
 
 async def main():
     # ОЧЕНЬ ВАЖНО: Удаляем вебхук перед запуском
