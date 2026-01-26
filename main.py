@@ -1,194 +1,160 @@
-import logging
 import asyncio
 import aiohttp
-import uuid
-import sys  # Добавлен импорт sys
+import json
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+import logging
 
-# КЛЮЧИ
+# Настройка
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
 AI_KEY = "AIzaSyDgW7ONTdXO_yiVTYlGs4Y_Q5VaGP0sano"
 
-# Создаем уникальный ID для текущего запуска бота
-session_id = str(uuid.uuid4())[:8]
+# Логирование
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-async def get_ai_prediction(match_name):
-    """Получает прогноз от Gemini API"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={AI_KEY}"
-    
-    payload = {
-        "contents": [{
-            "parts": [{
-                "text": f"Ты футбольный аналитик. Проанализируй матч {match_name}. Кто победит и вероятный счет? Ответь кратко, максимум 2-3 предложения."
-            }]
-        }],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 150
-        }
-    }
-
-    headers = {"Content-Type": "application/json"}
-
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(url, json=payload, headers=headers, timeout=15) as resp:
-                data = await resp.json()
-                
-                if resp.status == 200:
-                    if 'candidates' in data and len(data['candidates']) > 0:
-                        return data['candidates'][0]['content']['parts'][0]['text']
-                    else:
-                        return "🤖 Матч проанализирован, но ответ не содержит прогноза."
-                else:
-                    error_msg = data.get('error', {}).get('message', 'Неизвестная ошибка')
-                    return f"❌ Ошибка API: {error_msg}"
-                    
-        except aiohttp.ClientTimeout:
-            return "⏱️ Таймаут запроса к AI. Попробуйте позже."
-        except Exception as e:
-            logging.error(f"Ошибка в get_ai_prediction: {e}")
-            return f"⚠️ Ошибка: {str(e)}"
-
-# Инициализация бота с увеличением времени ожидания
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-
-bot = Bot(token=TOKEN, session_timeout=60)
+# Бот
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+async def get_available_models():
+    """Получить список доступных моделей"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={AI_KEY}"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                models = data.get('models', [])
+                print("\n📋 ДОСТУПНЫЕ МОДЕЛИ Gemini:")
+                for model in models:
+                    if 'generateContent' in model.get('supportedGenerationMethods', []):
+                        print(f"• {model['name']} (поддерживает generateContent)")
+                return models
+            else:
+                print(f"❌ Не удалось получить список моделей: {resp.status}")
+                return []
+
+async def get_ai_prediction(match_name):
+    """Получить прогноз от Gemini AI"""
+    # Пробуем разные модели в порядке приоритета
+    models_to_try = [
+        "gemini-1.5-pro-latest",     # Самая мощная
+        "gemini-1.0-pro-latest",     # Стандартная
+        "gemini-1.0-pro",           # Базовая
+        "gemini-1.5-flash-001",     # Быстрая
+        "gemini-1.0-ultra-latest"   # Премиум
+    ]
+    
+    headers = {"Content-Type": "application/json"}
+    
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={AI_KEY}"
+        
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": f"Ты футбольный аналитик. Проанализируй матч '{match_name}'. Кто победит и вероятный счет? Ответь кратко, 2-3 предложения."
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 150
+            }
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=10) as resp:
+                    data = await resp.json()
+                    
+                    if resp.status == 200:
+                        if 'candidates' in data and len(data['candidates']) > 0:
+                            prediction = data['candidates'][0]['content']['parts'][0]['text']
+                            logger.info(f"✅ Успешно использована модель: {model_name}")
+                            return prediction
+                    
+                    # Если ошибка 404, пробуем следующую модель
+                    if resp.status == 404:
+                        logger.warning(f"Модель {model_name} не найдена, пробую следующую...")
+                        continue
+                        
+        except Exception as e:
+            logger.error(f"Ошибка с моделью {model_name}: {e}")
+            continue
+    
+    # Если ни одна модель не сработала
+    return "🤖 Не удалось получить прогноз. Возможно, проблема с доступом к API или все модели недоступны."
+
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def start_cmd(message: types.Message):
     await message.answer(
-        f"⚽️ Футбольный аналитик бот запущен!\n"
-        f"ID сессии: {session_id}\n\n"
-        "Напиши название футбольного матча в формате:\n"
-        "• Барселона Реал Мадрид\n"
-        "• Манчестер Юнайтед Ливерпуль\n"
-        "• Зенит Спартак\n\n"
-        "Я проанализирую и дам прогноз на матч!"
+        "⚽ Футбольный аналитик бот готов!\n\n"
+        "Напишите название матча, например:\n"
+        "• Эвертон Лидс\n"
+        "• Барселона Реал\n"
+        "• Арсенал Челси\n\n"
+        "Я дам краткий прогноз на матч."
     )
 
-@dp.message(Command("help"))
-async def cmd_help(message: types.Message):
-    await message.answer(
-        "📋 Просто напишите название матча!\n"
-        "Например: 'Арсенал Челси' или 'Бразилия Аргентина'\n\n"
-        "Команды:\n"
-        "/start - Начать работу\n"
-        "/help - Помощь\n"
-        "/status - Статус бота"
-    )
-
-@dp.message(Command("status"))
-async def cmd_status(message: types.Message):
-    await message.answer(f"✅ Бот работает\nID сессии: {session_id}\nСтатус: Активен")
+@dp.message(Command("models"))
+async def models_cmd(message: types.Message):
+    """Команда для проверки доступных моделей"""
+    await message.answer("🔄 Проверяю доступные модели Gemini...")
+    
+    models = await get_available_models()
+    if models:
+        supported_models = []
+        for model in models:
+            if 'generateContent' in model.get('supportedGenerationMethods', []):
+                model_name = model['name'].split('/')[-1]
+                supported_models.append(model_name)
+        
+        if supported_models:
+            response = "📋 Доступные модели:\n" + "\n".join([f"• {model}" for model in supported_models[:10]])
+            await message.answer(response)
+        else:
+            await message.answer("❌ Нет моделей с поддержкой generateContent")
+    else:
+        await message.answer("❌ Не удалось получить список моделей")
 
 @dp.message()
-async def handle_msg(message: types.Message):
+async def handle_message(message: types.Message):
     if not message.text or message.text.startswith('/'):
         return
     
-    match_name = ' '.join(message.text.split()).strip()
-    
-    if not match_name or len(match_name) < 3:
-        await message.answer("⚠️ Пожалуйста, введите название матча (например: 'Барселона Реал')")
-        return
-    
+    # Отправляем статус "печатает"
     await bot.send_chat_action(message.chat.id, "typing")
     
-    try:
-        prediction = await get_ai_prediction(match_name)
-        response = f"⚽ **Матч:** {match_name}\n\n{prediction}\n\n📅 *Прогноз сгенерирован AI*"
-        await message.answer(response, parse_mode="Markdown")
-    except Exception as e:
-        logging.error(f"Error in handle_msg: {e}")
-        await message.answer("❌ Произошла ошибка. Попробуйте еще раз.")
-
-async def cleanup_bot():
-    """Полная очистка перед запуском"""
-    print("🔄 Полная очистка состояния бота...")
+    # Получаем прогноз
+    prediction = await get_ai_prediction(message.text)
     
-    # Пытаемся удалить вебхук несколько раз
-    for i in range(3):
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            print(f"✅ Попытка {i+1}: Вебхук удален")
-            
-            # Проверяем, что вебхук действительно удален
-            webhook_info = await bot.get_webhook_info()
-            if not webhook_info.url:
-                print("✅ Вебхук полностью удален")
-                break
-            else:
-                print(f"⚠️ Вебхук все еще активен: {webhook_info.url}")
-                await asyncio.sleep(2)
-        except Exception as e:
-            print(f"⚠️ Ошибка при удалении вебхука: {e}")
-            await asyncio.sleep(1)
-    
-    # Пробуем получить и сбросить последние обновления
-    try:
-        updates = await bot.get_updates(limit=1, timeout=1)
-        if updates:
-            last_update_id = updates[-1].update_id
-            # Сбрасываем offset
-            await bot.get_updates(offset=last_update_id + 1, timeout=1)
-            print(f"✅ Сброшен offset до {last_update_id + 1}")
-    except:
-        pass
-    
-    await asyncio.sleep(3)
+    # Форматируем ответ
+    response = f"⚽ **Матч:** {message.text}\n\n{prediction}"
+    await message.answer(response, parse_mode="Markdown")
 
 async def main():
-    """Основная функция запуска бота"""
-    # Настройка логирования
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    """Запуск бота"""
+    print("=" * 50)
+    print("🚀 ЗАПУСК ФУТБОЛЬНОГО БОТА")
+    print("=" * 50)
     
-    print(f"\n{'='*50}")
-    print(f"🚀 ЗАПУСК ФУТБОЛЬНОГО БОТА")
-    print(f"📱 Session ID: {session_id}")
-    print(f"{'='*50}\n")
+    # Проверяем доступные модели при запуске
+    print("\n🔍 Проверяю доступные модели Gemini API...")
+    await get_available_models()
     
-    # Настройка event loop для Windows
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # Удаляем вебхук
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("✅ Бот готов к работе")
+    print("📱 Отправьте /start в Telegram")
     
-    # Полная очистка перед запуском
-    await cleanup_bot()
-    
-    print("🤖 Бот запускается...")
-    
+    # Запускаем polling
     try:
-        # Запускаем polling с увеличенными таймаутами
-        await dp.start_polling(
-            bot,
-            skip_updates=True,
-            allowed_updates=["message"],
-            polling_timeout=60,
-            handle_signals=True,
-            close_bot_session=False
-        )
-        
+        await dp.start_polling(bot, skip_updates=True)
     except KeyboardInterrupt:
-        print("\n⏹️ Бот остановлен по запросу пользователя")
+        print("\n⏹️ Бот остановлен")
     except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
-    finally:
-        print("🔄 Завершение работы...")
-        try:
-            await bot.session.close()
-            print("✅ Сессия закрыта")
-        except:
-            pass
+        print(f"❌ Ошибка: {e}")
 
 if __name__ == "__main__":
-    # Точка входа с обработкой ошибок
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Программа завершена")
-    except Exception as e:
-        print(f"❌ Фатальная ошибка при запуске: {e}")
+    asyncio.run(main())
