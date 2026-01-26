@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 # === КОНФИГУРАЦИЯ ===
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8464793187:AAHnVesGUcKLcC8ih8lnhnOI7bIj_k_66CE")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8464793187:AAEb2-OgN8ZEM64kr-2wj9TqZRXnidWHmpc")
 AI_KEY = os.getenv("GOOGLE_AI_KEY", "AIzaSyBEc7T2HzCplYSNcv0d-X8aYZ_K35ZlUMo")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
