@@ -14,8 +14,8 @@ from functools import lru_cache
 
 # === КОНФИГУРАЦИЯ ===
 # Убедитесь, что эти переменные заданы в настройках вашего хостинга (Koyeb)
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-AI_KEY = os.getenv("GOOGLE_AI_KEY", "")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8464793187:AAHnVesGUcKLcC8ih8lnhnOI7bIj_k_66CE")
+AI_KEY = os.getenv("GOOGLE_AI_KEY", "AIzaSyDRwj6eXAP8XnXFx2CLEfuQc-R59XABKh4")
 
 # Настройка логирования
 logging.basicConfig(
@@ -247,3 +247,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот остановлен")
+        
