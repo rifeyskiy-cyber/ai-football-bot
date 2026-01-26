@@ -12,32 +12,26 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 async def get_ai_prediction(match_name):
-    # Используем v1beta и модель 1.5-flash как наиболее стабильную связку
+    # Самый надежный эндпоинт для 1.5-flash
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={AI_KEY}"
     
     payload = {
-        "contents": [{
-            "parts": [{
-                "text": f"Ты футбольный аналитик. Проанализируй матч {match_name}. Кто победит и какой вероятный счет? Ответь кратко."
-            }]
-        }]
+        "contents": [{"parts": [{"text": f"Ты футбольный аналитик. Проанализируй матч {match_name}. Кто победит и вероятный счет? Ответь кратко."}]}]
     }
 
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(url, json=payload, timeout=15) as resp:
+                data = await resp.json()
                 if resp.status == 200:
-                    data = await resp.json()
                     return data['candidates'][0]['content']['parts'][0]['text']
-                else:
-                    error_data = await resp.json()
-                    return f"❌ Ошибка API: {error_data.get('error', {}).get('message', 'Неизвестная ошибка')}"
+                return f"❌ Ошибка API: {data.get('error', {}).get('message', 'Неизвестная ошибка')}"
         except Exception as e:
             return f"❌ Ошибка сети: {str(e)}"
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("⚽️ Бот успешно перезапущен и готов к работе! Напишите матч.")
+    await message.answer("⚽️ Бот успешно перезапущен! Напиши матч.")
 
 @dp.message()
 async def handle_msg(message: types.Message):
@@ -47,21 +41,23 @@ async def handle_msg(message: types.Message):
         prediction = await get_ai_prediction(message.text)
         await message.answer(prediction)
     except Exception as e:
-        logging.error(f"Ошибка в обработчике: {e}")
+        logging.error(f"Error: {e}")
 
 async def main():
-    # ШАГ 1: Разрываем все старые соединения
-    print("Принудительная очистка сессий...")
+    print("--- ЗАПУСК СИСТЕМЫ ОЧИСТКИ ---")
+    
+    # 1. Мгновенный разрыв старых соединений через установку пустого вебхука
+    await bot.set_webhook(url='https://google.com', drop_pending_updates=True)
+    await asyncio.sleep(1)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    # ШАГ 2: Увеличиваем паузу до 25 секунд
-    # Это гарантирует, что старый инстанс на хостинге будет убит по таймауту
-    print("Ожидание полной остановки старых копий (25 секунд)...")
-    await asyncio.sleep(25) 
+    # 2. Техническая пауза для сброса состояния на серверах Telegram
+    print("Ожидание стабилизации (10 секунд)...")
+    await asyncio.sleep(10) 
 
-    print(">>> БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ <<<")
+    print(">>> БОТ АКТИВИРОВАН И ГОТОВ <<<")
     try:
-        # ШАГ 3: Запускаем с пропуском накопившихся сообщений
+        # 3. Запуск основного цикла
         await dp.start_polling(bot, skip_updates=True)
     finally:
         await bot.session.close()
