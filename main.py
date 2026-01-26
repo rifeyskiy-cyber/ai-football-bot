@@ -12,9 +12,10 @@ from functools import lru_cache
 import hashlib
 
 # === КОНФИГУРАЦИЯ ===
-# БЕЗОПАСНОСТЬ: используем переменные окружения
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8464793187:AAHnVesGUcKLcC8ih8lnhnOI7bIj_k_66CE")
 AI_KEY = os.getenv("GOOGLE_AI_KEY", "AIzaSyDRwj6eXAP8XnXFx2CLEfuQc-R59XABKh4")
+
+
 
 # Логирование
 logging.basicConfig(
@@ -186,7 +187,7 @@ def calculate_match_stats(team1_data, team2_data):
     defense_strength1 = team1_data["avg_goals_against"]
     defense_strength2 = team2_data["avg_goals_against"]
     
-    # Прогнозируемые голы (Poisson распределение)
+    # Прогнозируемые голы
     expected_goals1 = (attack_strength1 + defense_strength2) / 2
     expected_goals2 = (attack_strength2 + defense_strength1) / 2
     
@@ -200,7 +201,7 @@ def calculate_match_stats(team1_data, team2_data):
     stats_weight = 0.4
     home_advantage = 0.2
     
-    # Общий рейтинг (от 0 до 100)
+    # Общий рейтинг
     rating1 = (form1["percentage"] * form_weight + 
                gd_normalized1 * stats_weight + 
                (home_advantage * 100 if team1_data.get("home", False) else 0))
@@ -209,21 +210,21 @@ def calculate_match_stats(team1_data, team2_data):
                gd_normalized2 * stats_weight + 
                (home_advantage * 100 if team2_data.get("home", False) else 0))
     
-    # Вероятность победы (Elo-like система)
+    # Вероятность победы
     total_rating = rating1 + rating2
     win_prob1 = (rating1 / total_rating) * 100
     win_prob2 = (rating2 / total_rating) * 100
     
-    # Вероятность ничьей (зависит от оборонительных способностей)
+    # Вероятность ничьей
     avg_defense = (defense_strength1 + defense_strength2) / 2
-    draw_factor = max(0, 1 - avg_defense)  # Чем лучше защита, тем меньше ничьих
-    draw_prob = min(35, draw_factor * 100)  # Максимум 35% на ничью
+    draw_factor = max(0, 1 - avg_defense)
+    draw_prob = min(35, draw_factor * 100)
     
     # Распределяем вероятность ничьей
     win_prob1 = win_prob1 * (1 - draw_prob/100)
     win_prob2 = win_prob2 * (1 - draw_prob/100)
     
-    # Прогноз счета на основе ожидаемых голов
+    # Прогноз счета
     score1 = round(expected_goals1)
     score2 = round(expected_goals2)
     
@@ -299,7 +300,6 @@ def get_team_data(team_name):
     
     # Поиск по части названия
     for key, data in FOOTBALL_DATA.items():
-        # Проверяем полное совпадение слов
         team_words = team_lower.split()
         key_words = key.split()
         
@@ -501,4 +501,14 @@ async def stats_cmd(message: types.Message):
         response += "\n📅 *ПОСЛЕДНИЕ МАТЧИ:*\n"
         for match in team_data['last_matches'][:3]:  # Последние 3
             result_emoji = {"W": "✅", "D": "⚪", "L": "❌"}.get(match['result'], "❓")
-            response += f"{result_emoji} {match['op
+            response += f"{result_emoji} {match['opponent']} {match['score']} ({match['date']})\n"
+    
+    await message.answer(response, parse_mode="Markdown")
+
+@dp.message(Command("form"))
+async def form_cmd(message: types.Message):
+    """Форма команды"""
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    
+    if not args:
+   
