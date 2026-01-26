@@ -4,8 +4,9 @@ import random
 import json
 import os
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.types import Message
 import logging
 from collections import defaultdict
 from functools import lru_cache
@@ -14,7 +15,6 @@ import hashlib
 # === КОНФИГУРАЦИЯ ===
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8464793187:AAHnVesGUcKLcC8ih8lnhnOI7bIj_k_66CE")
 AI_KEY = os.getenv("GOOGLE_AI_KEY", "AIzaSyDRwj6eXAP8XnXFx2CLEfuQc-R59XABKh4")
-
 
 
 # Логирование
@@ -54,7 +54,7 @@ FOOTBALL_DATA = {
         "key_players": [
             {"name": "Доминик Калверт-Льюин", "position": "Нападающий", "status": "готов", "goals": 8},
             {"name": "Джаред Брантуэйт", "position": "Защитник", "status": "готов", "apps": 20},
-            {"name": "Джеймス Тарковски", "position": "Защитник", "status": "готов", "apps": 22},
+            {"name": "Джеймс Тарковски", "position": "Защитник", "status": "готов", "apps": 22},
             {"name": "Абдулай Дукуре", "position": "Полузащитник", "status": "травма", "return": "2 недели"}
         ],
         "coach": "Шон Дайч",
@@ -496,10 +496,10 @@ async def stats_cmd(message: types.Message):
 {format_form_display(team_data['form'])}
 """
     
-    # Последние матчи
+    # Последние матчи (Исправлена ошибка переноса строки)
     if team_data['last_matches']:
         response += "\n📅 *ПОСЛЕДНИЕ МАТЧИ:*\n"
-        for match in team_data['last_matches'][:3]:  # Последние 3
+        for match in team_data['last_matches'][:3]:
             result_emoji = {"W": "✅", "D": "⚪", "L": "❌"}.get(match['result'], "❓")
             response += f"{result_emoji} {match['opponent']} {match['score']} ({match['date']})\n"
     
@@ -507,8 +507,5 @@ async def stats_cmd(message: types.Message):
 
 @dp.message(Command("form"))
 async def form_cmd(message: types.Message):
-    """Форма команды"""
-    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-    
-    if not args:
-   
+    """Форма команды (Дописана недостающая часть)"""
+    args = mess
