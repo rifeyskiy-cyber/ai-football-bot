@@ -13,8 +13,8 @@ import hashlib
 
 # === КОНФИГУРАЦИЯ ===
 # БЕЗОПАСНОСТЬ: используем переменные окружения
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "ВАШ_ТОКЕН_ЗДЕСЬ")
-AI_KEY = os.getenv("GOOGLE_AI_KEY", "ВАШ_КЛЮЧ_AI_ЗДЕСЬ")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8464793187:AAHnVesGUcKLcC8ih8lnhnOI7bIj_k_66CE")
+AI_KEY = os.getenv("GOOGLE_AI_KEY", "AIzaSyDRwj6eXAP8XnXFx2CLEfuQc-R59XABKh4")
 
 # Логирование
 logging.basicConfig(
