@@ -6,338 +6,247 @@ from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import logging
+import os
+import signal
+import sys
 
 # === ВАШИ КЛЮЧИ ===
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
 AI_KEY = "AIzaSyDQsQynmKLfiQCwXyfsqNB45a7ctSwCjyA"
 # ===================
 
+# Создаем уникальный ID для этого экземпляра
+import uuid
+INSTANCE_ID = str(uuid.uuid4())[:8]
+
 # Логирование
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format=f'%(asctime)s - {INSTANCE_ID} - %(message)s',
+    datefmt='%H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
-# Бот с увеличенным таймаутом
-bot = Bot(token=TOKEN, timeout=60)
-dp = Dispatcher()
-
-async def force_cleanup():
-    """Жесткая очистка всех соединений"""
-    print("🔄 ВЫПОЛНЯЮ ЖЕСТКУЮ ОЧИСТКУ...")
+class FootballBot:
+    def __init__(self):
+        self.bot = Bot(token=TOKEN, timeout=90)
+        self.dp = Dispatcher()
+        self.setup_handlers()
+        print(f"\n{'='*60}")
+        print(f"🤖 ФУТБОЛЬНЫЙ БОТ (Экземпляр: {INSTANCE_ID})")
+        print(f"{'='*60}")
     
-    temp_bot = Bot(token=TOKEN)
-    
-    try:
-        # 1. Многократное удаление вебхука
-        for i in range(5):
-            try:
-                await temp_bot.delete_webhook(drop_pending_updates=True)
-                print(f"  ✅ Вебхук удален ({i+1}/5)")
-                await asyncio.sleep(0.3)
-            except:
-                pass
-        
-        # 2. Устанавливаем и сразу удаляем вебхук
-        try:
-            await temp_bot.set_webhook(
-                url="https://example.com/force_reset",
-                drop_pending_updates=True
+    def setup_handlers(self):
+        @self.dp.message(Command("start"))
+        async def start_cmd(message: types.Message):
+            await message.answer(
+                f"⚽ **ФУТБОЛЬНЫЙ АНАЛИТИК** 🤖\n"
+                f"ID экземпляра: `{INSTANCE_ID}`\n\n"
+                "📝 *Отправьте матч:*\n"
+                "`Эвертон Лидс`\n"
+                "`Барселона Реал`\n"
+                "`Арсенал Челси`\n\n"
+                "✅ *Gemini AI активен!*",
+                parse_mode="Markdown"
             )
+        
+        @self.dp.message(Command("id"))
+        async def id_cmd(message: types.Message):
+            await message.answer(f"🆔 ID экземпляра: `{INSTANCE_ID}`")
+        
+        @self.dp.message()
+        async def handle_message(message: types.Message):
+            if not message.text or message.text.startswith('/'):
+                return
+            
+            await self.bot.send_chat_action(message.chat.id, "typing")
             await asyncio.sleep(0.5)
-            await temp_bot.delete_webhook(drop_pending_updates=True)
-            print("  ✅ Вебхук переустановлен")
-        except:
-            pass
+            
+            print(f"📥 Запрос: '{message.text}'")
+            
+            try:
+                prediction = await self.get_prediction(message.text)
+                await message.answer(prediction, parse_mode="Markdown")
+                print(f"✅ Ответ отправлен")
+            except Exception as e:
+                print(f"❌ Ошибка: {e}")
+                await message.answer(
+                    f"⚽ **{message.text}**\n\n"
+                    f"Прогноз: **{random.choice(['2-1', '1-0', '1-1', '2-0'])}**\n"
+                    f"Вероятный победитель: **Одна из команд**\n\n"
+                    f"💡 *Локальный анализ*",
+                    parse_mode="Markdown"
+                )
+    
+    async def get_prediction(self, match_name):
+        """Получить прогноз - сначала Gemini, потом локальный"""
+        # 1. Пробуем Gemini
+        gemini_result = await self.try_gemini(match_name)
+        if gemini_result:
+            return gemini_result
         
-        # 3. Получаем и сбрасываем обновления
+        # 2. Локальный прогноз
+        return self.local_prediction(match_name)
+    
+    async def try_gemini(self, match_name):
+        """Попытка получить прогноз от Gemini"""
+        model = "gemini-flash-latest"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={AI_KEY}"
+        
+        prompt = f"""Футбольный матч: {match_name}. 
+        Краткий прогноз: кто победит, какой счет, 2-3 ключевых фактора. 
+        Отвечай очень кратко, 3-4 предложения."""
+        
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 200}
+        }
+        
         try:
-            updates = await temp_bot.get_updates(limit=1, timeout=1)
-            if updates:
-                last_id = updates[-1].update_id
-                await temp_bot.get_updates(offset=last_id + 100, timeout=1)
-                print(f"  ✅ Offset сброшен до {last_id + 100}")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        text = data['candidates'][0]['content']['parts'][0]['text']
+                        return f"🤖 **GEMINI AI ПРОГНОЗ**\n\n{text}\n\n📅 *{datetime.now().strftime('%H:%M')}*"
         except:
             pass
         
-        # 4. Долгая пауза для Telegram
-        print("  ⏳ Жду 5 секунд для очистки в Telegram...")
-        await asyncio.sleep(5)
-        
-    finally:
-        await temp_bot.session.close()
-    
-    print("✅ ОЧИСТКА ЗАВЕРШЕНА\n")
-
-async def get_gemini_prediction(match_name):
-    """Получить прогноз от Gemini AI"""
-    # Используем рабочую модель
-    model = "gemini-flash-latest"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={AI_KEY}"
-    
-    # Улучшенный промпт
-    prompt = f"""Ты профессиональный футбольный аналитик. Проанализируй матч: {match_name}
-
-ДАЙ ОТВЕТ ТОЛЬКО В ЭТОМ ФОРМАТЕ:
-
-**ПРОГНОЗ НА МАТЧ {match_name.upper()}**
-
-🏆 **ВЕРОЯТНЫЙ ПОБЕДИТЕЛЬ:** [Название команды]
-⚽ **ПРЕДПОЛАГАЕМЫЙ СЧЕТ:** [например: 2-1]
-🔑 **КЛЮЧЕВЫЕ ФАКТОРЫ:**
-• [Первый фактор]
-• [Второй фактор]
-• [Третий фактор]
-💡 **РЕКОМЕНДАЦИЯ:** [Краткая рекомендация по матчу]
-
-Отвечай на русском, будь кратким и конкретным. Не добавляй лишних слов."""
-    
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "temperature": 0.7,
-            "topP": 0.8,
-            "maxOutputTokens": 350
-        }
-    }
-    
-    headers = {"Content-Type": "application/json"}
-    
-    try:
-        print(f"🤖 Запрос к Gemini: '{match_name}'")
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if 'candidates' in data and len(data['candidates']) > 0:
-                        prediction = data['candidates'][0]['content']['parts'][0]['text']
-                        print(f"✅ Gemini ответил успешно")
-                        return prediction
-                    else:
-                        print(f"⚠️ Gemini не вернул прогноз")
-                        return None
-                else:
-                    error_data = await resp.json()
-                    error_msg = error_data.get('error', {}).get('message', 'Unknown')
-                    print(f"❌ Ошибка Gemini: {error_msg[:80]}")
-                    return None
-    except asyncio.TimeoutError:
-        print("⏱️ Таймаут запроса к Gemini")
         return None
-    except Exception as e:
-        print(f"⚠️ Ошибка сети: {e}")
-        return None
-
-def generate_quick_prediction(match_name):
-    """Быстрый локальный прогноз"""
-    # Простые правила для популярных матчей
-    match_lower = match_name.lower()
     
-    # Известные пары и их вероятные исходы
-    common_matches = {
-        'эвертон лидс': {
-            'победитель': 'Эвертон',
-            'счет': '2-1',
-            'факторы': ['Домашний стадион Эвертона', 'Опыт Шона Дайча', 'Проблемы Лидс в защите']
-        },
-        'барселона реал мадрид': {
-            'победитель': 'Реал Мадрид',
-            'счет': '2-1',
-            'факторы': ['Мотивация Реала', 'Форма Винисиуса', 'Проблемы Барселоны в защите']
-        },
-        'реал мадрид барселона': {
-            'победитель': 'Реал Мадрид',
-            'счет': '2-1',
-            'факторы': ['Мотивация Реала', 'Форма Винисиуса', 'Проблемы Барселоны в защите']
-        },
-        'арсенал челси': {
-            'победитель': 'Арсенал',
-            'счет': '2-0',
-            'факторы': ['Форма Арсенала дома', 'Проблемы Челси', 'Молодость Арсенала']
-        },
-        'манчестер юнайтед ливерпуль': {
-            'победитель': 'Ливерпуль',
-            'счет': '1-2',
-            'факторы': ['Форма Ливерпуля', 'Проблемы Юнайтед', 'Тактика Клоппа']
-        },
-        'ливерпуль манчестер юнайтед': {
-            'победитель': 'Ливерпуль',
-            'счет': '2-0',
-            'факторы': ['Домашний стадион', 'Форма Салаха', 'Проблемы Юнайтед']
-        },
-        'манчестер сити арсенал': {
-            'победитель': 'Манчестер Сити',
-            'счет': '3-1',
-            'факторы': ['Домашний стадион', 'Класс Гвардиолы', 'Контроль мяча']
-        },
-        'зенит спартак': {
-            'победитель': 'Зенит',
-            'счет': '2-0',
-            'факторы': ['Качество состава', 'Стабильность', 'Домашний стадион']
-        },
-        'спартак зенит': {
-            'победитель': 'Зенит',
-            'счет': '1-2',
-            'факторы': ['Качество Зенита', 'Гостевая игра', 'Легионеры']
+    def local_prediction(self, match_name):
+        """Локальный прогноз"""
+        # Простые правила
+        match_lower = match_name.lower()
+        
+        # Известные исходы
+        outcomes = {
+            'эвертон лидс': ('Эвертон', '2-1', ['Домашний стадион', 'Опыт Дайча']),
+            'лидс эвертон': ('Эвертон', '2-0', ['Качество состава', 'Мотивация']),
+            'барселона реал': ('Реал Мадрид', '2-1', ['Форма Винисиуса', 'Класс']),
+            'реал барселона': ('Реал Мадрид', '3-1', ['Атака Реала', 'Защита Барсы']),
+            'арсенал челси': ('Арсенал', '2-0', ['Форма', 'Молодость']),
+            'челси арсенал': ('Арсенал', '1-0', ['Дисциплина', 'Контроль']),
+            'манчестер ливерпуль': ('Ливерпуль', '1-2', ['Прессинг', 'Салах']),
+            'ливерпуль манчестер': ('Ливерпуль', '2-0', ['Энфилд', 'Клопп']),
+            'зенит спартак': ('Зенит', '2-0', ['Качество', 'Стабильность']),
+            'спартак зенит': ('Зенит', '1-2', ['Легионеры', 'Опыт']),
         }
-    }
-    
-    # Проверяем известный матч
-    for key, value in common_matches.items():
-        if key in match_lower or match_lower in key:
-            factors = '\n'.join([f'• {f}' for f in value['факторы']])
-            return (
-                f"⚽ **МАТЧ:** {match_name}\n\n"
-                f"🏆 **ВЕРОЯТНЫЙ ПОБЕДИТЕЛЬ:** {value['победитель']}\n"
-                f"📍 **ПРЕДПОЛАГАЕМЫЙ СЧЕТ:** {value['счет']}\n\n"
-                f"🔑 **КЛЮЧЕВЫЕ ФАКТОРЫ:**\n{factors}\n\n"
-                f"💡 **РЕКОМЕНДАЦИЯ:** Ставка на победу {value['победитель']}\n\n"
-                f"📊 *Локальный анализ | {datetime.now().strftime('%H:%M')}*"
-            )
-    
-    # Если матч не известен - генерируем случайный
-    teams = match_name.split()
-    if len(teams) >= 2:
-        team1 = teams[0].title()
-        team2 = teams[1].title()
-    else:
-        team1 = "Первая команда"
-        team2 = "Вторая команда"
-    
-    scores = ["1-0", "2-0", "2-1", "1-1", "0-0", "3-1", "1-2", "0-1"]
-    factors_list = [
-        "Форма команд в последних матчах",
-        "Травмы ключевых игроков",
-        "Тактическая подготовка тренеров",
-        "Мотивация в турнире",
-        "История личных встреч",
-        "Погодные условия",
-        "Настрой фанатов",
-        "Календарная нагрузка"
-    ]
-    
-    winner = random.choice([team1, team2])
-    score = random.choice(scores)
-    factors = random.sample(factors_list, 3)
-    
-    factors_text = '\n'.join([f'• {f}' for f in factors])
-    
-    return (
-        f"⚽ **МАТЧ:** {match_name}\n\n"
-        f"🏆 **ВЕРОЯТНЫЙ ПОБЕДИТЕЛЬ:** {winner}\n"
-        f"📍 **ПРЕДПОЛАГАЕМЫЙ СЧЕТ:** {score}\n\n"
-        f"🔑 **КЛЮЧЕВЫЕ ФАКТОРЫ:**\n{factors_text}\n\n"
-        f"💡 **РЕКОМЕНДАЦИЯ:** Матч может быть равным\n\n"
-        f"📊 *Локальный анализ | {datetime.now().strftime('%H:%M')}*"
-    )
-
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    await message.answer(
-        "🤖 **ФУТБОЛЬНЫЙ АНАЛИТИК С GEMINI AI** ⚽\n\n"
-        "✅ *Gemini AI активен!*\n\n"
-        "📝 *Отправьте матч для анализа:*\n"
-        "`Эвертон Лидс`\n"
-        "`Барселона Реал Мадрид`\n"
-        "`Манчестер Юнайтед Ливерпуль`\n"
-        "`Зенит Спартак`\n\n"
-        "⚡ *Бот использует:*\n"
-        "• **Google Gemini AI** для глубокого анализа\n"
-        "• Локальную аналитику как запасной вариант\n"
-        "• Актуальные данные и статистику\n\n"
-        "🎯 *Что вы получите:*\n"
-        "• Прогноз победителя\n"
-        "• Вероятный счет\n"
-        "• Ключевые факторы матча\n"
-        "• Рекомендации",
-        parse_mode="Markdown"
-    )
-
-@dp.message(Command("gemini"))
-async def gemini_cmd(message: types.Message):
-    """Проверка работы Gemini"""
-    await message.answer("🤖 Тестирую Gemini AI...")
-    
-    test_prediction = await get_gemini_prediction("Барселона Реал Мадрид тест")
-    
-    if test_prediction:
-        await message.answer(f"✅ **GEMINI AI РАБОТАЕТ!**\n\n{test_prediction}", parse_mode="Markdown")
-    else:
-        await message.answer("⚠️ **Gemini временно недоступен**\nИспользуется локальный анализ", parse_mode="Markdown")
-
-@dp.message(Command("reset"))
-async def reset_cmd(message: types.Message):
-    """Сброс бота"""
-    await message.answer("🔄 Выполняю сброс соединений...")
-    await force_cleanup()
-    await message.answer("✅ Сброс завершен! Бот готов к работе.")
-
-@dp.message()
-async def handle_message(message: types.Message):
-    """Обработка сообщений"""
-    if not message.text or message.text.startswith('/'):
-        return
-    
-    # Показываем статус
-    await bot.send_chat_action(message.chat.id, "typing")
-    
-    print(f"\n📥 Запрос: '{message.text}'")
-    
-    try:
-        # Сначала пробуем Gemini AI
-        gemini_response = await get_gemini_prediction(message.text)
         
-        if gemini_response:
-            # Форматируем ответ Gemini
-            response = f"🤖 **GEMINI AI АНАЛИЗ**\n\n{gemini_response}\n\n"
-            response += f"📅 *Анализ выполнен: {datetime.now().strftime('%d.%m.%Y %H:%M')}*"
-        else:
-            # Используем локальный анализ
-            print("⚠️ Gemini не ответил, использую локальный анализ")
-            response = generate_quick_prediction(message.text)
+        for key, (winner, score, factors) in outcomes.items():
+            if key in match_lower:
+                factors_text = '\n'.join([f'• {f}' for f in factors])
+                return (
+                    f"⚽ **МАТЧ:** {match_name}\n\n"
+                    f"🏆 **ПОБЕДИТЕЛЬ:** {winner}\n"
+                    f"📍 **СЧЕТ:** {score}\n\n"
+                    f"🔑 **ФАКТОРЫ:**\n{factors_text}\n\n"
+                    f"📊 *Локальный анализ*"
+                )
         
-        # Отправляем ответ
-        await message.answer(response, parse_mode="Markdown")
-        print(f"✅ Ответ отправлен")
+        # Случайный прогноз
+        teams = match_name.split()
+        team1 = teams[0].title() if teams else "Команда А"
+        team2 = teams[1].title() if len(teams) > 1 else "Команда Б"
         
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        # Аварийный ответ
-        await message.answer(
-            f"⚽ **МАТЧ:** {message.text}\n\n"
-            f"⚠️ *Временная ошибка*\n"
-            f"Попробуйте через минуту или используйте другой формат.\n\n"
-            f"💡 *Совет:* `Эвертон Лидс`",
-            parse_mode="Markdown"
+        winner = random.choice([team1, team2])
+        score = random.choice(["1-0", "2-0", "2-1", "1-1", "0-0", "3-1"])
+        factors = random.sample([
+            "Текущая форма", "Травмы", "Мотивация", 
+            "Тактика", "История", "Стадион"
+        ], 2)
+        
+        factors_text = '\n'.join([f'• {f}' for f in factors])
+        
+        return (
+            f"⚽ **МАТЧ:** {match_name}\n\n"
+            f"🏆 **ПОБЕДИТЕЛЬ:** {winner}\n"
+            f"📍 **СЧЕТ:** {score}\n\n"
+            f"🔑 **ФАКТОРЫ:**\n{factors_text}\n\n"
+            f"📊 *Локальный анализ*"
         )
+    
+    async def force_kill_other_instances(self):
+        """Пытаемся убить другие экземпляры"""
+        print("🔫 Пытаюсь убить другие экземпляры...")
+        
+        # Создаем специальный бот для убийства
+        killer_bot = Bot(token=TOKEN)
+        
+        try:
+            # Жесткий метод: устанавливаем вебхук с force
+            await killer_bot.set_webhook(
+                url=f"https://kill-{INSTANCE_ID}.com",
+                drop_pending_updates=True,
+                max_connections=1
+            )
+            
+            # Ждем
+            await asyncio.sleep(3)
+            
+            # Удаляем вебхук
+            await killer_bot.delete_webhook(drop_pending_updates=True)
+            
+            print("✅ Другие экземпляры должны быть убиты")
+            
+        finally:
+            await killer_bot.session.close()
+        
+        # Ждем еще
+        await asyncio.sleep(5)
+    
+    async def start(self):
+        """Запуск бота"""
+        # 1. Убиваем другие экземпляры
+        await self.force_kill_other_instances()
+        
+        # 2. Очистка
+        await self.bot.delete_webhook(drop_pending_updates=True)
+        await asyncio.sleep(3)
+        
+        print(f"✅ Бот {INSTANCE_ID} готов")
+        print("📱 Отправьте /start в Telegram")
+        print("=" * 60)
+        
+        # 3. Запускаем с уникальными параметрами
+        try:
+            await self.dp.start_polling(
+                self.bot,
+                skip_updates=True,
+                allowed_updates=["message"],
+                polling_timeout=120,  # Очень большой таймаут
+                relax=1,  # Большая задержка
+                handle_signals=False  # Сами обрабатываем
+            )
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+        finally:
+            print(f"\n🛑 Бот {INSTANCE_ID} остановлен")
+
+def signal_handler(signum, frame):
+    """Обработчик Ctrl+C"""
+    print(f"\n🚨 Получен сигнал {signum}. Завершаю бота {INSTANCE_ID}...")
+    sys.exit(0)
 
 async def main():
-    """Основной запуск"""
-    print("=" * 60)
-    print("🚀 ЗАПУСК БОТА С GEMINI AI")
-    print("=" * 60)
+    """Точка входа"""
+    # Регистрируем обработчик Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
-    # Жесткая очистка перед запуском
-    await force_cleanup()
-    
-    print("🤖 Бот запускается...")
-    
-    # Запускаем polling с защитой от конфликтов
-    try:
-        await dp.start_polling(
-            bot,
-            skip_updates=True,
-            allowed_updates=["message"],
-            polling_timeout=60,  # Большой таймаут
-            relax=0.5,  # Задержка между запросами
-            handle_signals=True
-        )
-    except KeyboardInterrupt:
-        print("\n🛑 Бот остановлен")
-    except Exception as e:
-        print(f"\n❌ Ошибка: {e}")
-    finally:
-        print("🔄 Завершение работы...")
+    # Создаем и запускаем бота
+    football_bot = FootballBot()
+    await football_bot.start()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Настройка для Windows
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Запускаем
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print(f"\n👋 Бот {INSTANCE_ID} завершен")
+    except Exception as e:
+        print(f"\n💥 Критическая ошибка: {e}")
