@@ -5,161 +5,139 @@ from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import logging
+import sys
 
 # === ВАШИ КЛЮЧИ ===
-TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
+TOKEN = "8464793187:AAHErGkpbQUSF9HjfU1efmM0bgtFemmHb9E"
 AI_KEY = "AIzaSyDQsQynmKLfiQCwXyfsqNB45a7ctSwCjyA"
 # ===================
 
 # Логирование
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.INFO, format="[BOT] %(message)s")
 
-# Бот
-bot = Bot(token=TOKEN, timeout=60)
-dp = Dispatcher()
+# Глобальная переменная для блокировки
+bot_lock = None
 
-async def get_gemini_prediction(match_name):
-    """Получить прогноз от Gemini AI"""
+async def create_singleton_bot():
+    """Создает бота с защитой от множественных запусков"""
+    global bot_lock
+    
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
+    
+    # Создаем файловую блокировку
+    import os
+    lock_file = "/tmp/football_bot.lock"
+    
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={AI_KEY}"
+        # Пытаемся создать lock файл
+        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+        bot_lock = fd
+        print("🔒 Блокировка установлена - этот экземпляр главный")
+    except FileExistsError:
+        print("❌ Другой экземпляр уже запущен. Завершаюсь...")
+        sys.exit(1)
+    
+    @dp.message(Command("start"))
+    async def start_cmd(message: types.Message):
+        await message.answer(
+            "⚽ **Футбольный аналитик** 🤖\n\n"
+            "Отправьте матч для анализа:\n"
+            "• `Эвертон Лидс`\n"
+            "• `Барселона Реал`\n"
+            "• `Арсенал Челси`\n\n"
+            "✅ AI активен!",
+            parse_mode="Markdown"
+        )
+    
+    @dp.message(Command("stop"))
+    async def stop_cmd(message: types.Message):
+        """Команда для остановки бота"""
+        await message.answer("🛑 Останавливаю бота...")
+        # Освобождаем блокировку
+        if bot_lock:
+            os.close(bot_lock)
+            os.unlink(lock_file)
+        sys.exit(0)
+    
+    @dp.message()
+    async def handle_message(message: types.Message):
+        if not message.text or message.text.startswith('/'):
+            return
         
-        prompt = f"""Проанализируй футбольный матч {match_name}. 
-        Кратко: кто победит, какой счет, почему. 
-        Ответь на русском, 3-4 предложения."""
+        await bot.send_chat_action(message.chat.id, "typing")
+        await asyncio.sleep(0.5)
         
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 200}
-        }
+        print(f"📥 Запрос: {message.text}")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=15) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    text = data['candidates'][0]['content']['parts'][0]['text']
-                    return f"🤖 **AI ПРОГНОЗ:**\n\n{text}\n\n📅 {datetime.now().strftime('%H:%M')}"
+        # Простой AI запрос
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={AI_KEY}"
+            prompt = f"Футбольный матч {message.text}. Краткий прогноз кто победит и счёт. Ответь на русском."
+            
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        ai_text = data['candidates'][0]['content']['parts'][0]['text']
+                        response = f"🤖 **AI ПРОГНОЗ:**\n\n{ai_text}"
+                    else:
+                        response = f"⚽ **{message.text}**\n\nПрогноз: **{random.choice(['2-1', '1-0', '1-1'])}**"
+        except:
+            response = f"⚽ **{message.text}**\n\nПрогноз: **{random.choice(['2-1', '1-0', '1-1'])}**"
+        
+        await message.answer(response, parse_mode="Markdown")
+    
+    return bot, dp
+
+async def main():
+    """Главная функция"""
+    print("=" * 50)
+    print("🚀 ЗАПУСК ФУТБОЛЬНОГО БОТА (Синглтон)")
+    print("=" * 50)
+    
+    # Останавливаем все предыдущие процессы
+    print("🛑 Останавливаю возможные дубликаты...")
+    try:
+        # Прямой запрос к API для удаления вебхука
+        import requests
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=5)
+        print("✅ Старые соединения сброшены")
     except:
         pass
     
-    return None
-
-def get_local_prediction(match_name):
-    """Локальный прогноз"""
-    match_lower = match_name.lower()
+    # Ждем 5 секунд
+    await asyncio.sleep(5)
     
-    # Популярные матчи
-    predictions = {
-        'эвертон лидс': ("Эвертон", "2-1", "Домашний стадион и опыт Шона Дайча дадут преимущество."),
-        'барселона реал': ("Реал Мадрид", "2-1", "Класс и мотивация Реала перевесят."),
-        'реал барселона': ("Реал Мадрид", "3-1", "Атакующая мощь Реала будет ключевой."),
-        'арсенал челси': ("Арсенал", "2-0", "Форма Арсенала и проблемы Челси."),
-        'манчестер ливерпуль': ("Ливерпуль", "1-2", "Прессинг и скорость Ливерпуля."),
-        'ливерпуль манчестер': ("Ливерпуль", "2-0", "Сила на Энфилде."),
-        'зенит спартак': ("Зенит", "2-0", "Качество состава Зенита."),
-    }
+    # Создаем бота с блокировкой
+    bot, dp = await create_singleton_bot()
     
-    for key, (winner, score, reason) in predictions.items():
-        if key in match_lower:
-            return f"⚽ **{match_name}**\n\n🏆 **Победитель:** {winner}\n📍 **Счет:** {score}\n💡 **Причина:** {reason}"
+    # Очищаем вебхук
+    await bot.delete_webhook(drop_pending_updates=True)
     
-    # Случайный прогноз для неизвестных матчей
-    winner = "Одна из команд"
-    score = random.choice(["1-0", "2-1", "1-1", "2-0", "0-0"])
-    reasons = [
-        "Форма команд будет решающим фактором.",
-        "Тактическая подготовка тренеров определит исход.",
-        "Мотивация в турнире сыграет ключевую роль.",
-        "Ключевые игроки решат судьбу матча."
-    ]
-    
-    return f"⚽ **{match_name}**\n\n🏆 **Победитель:** {winner}\n📍 **Счет:** {score}\n💡 **Анализ:** {random.choice(reasons)}"
-
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    await message.answer(
-        "⚽ **Футбольный аналитик** 🤖\n\n"
-        "Отправьте название матча:\n"
-        "• Эвертон Лидс\n"
-        "• Барселона Реал\n"
-        "• Арсенал Челси\n\n"
-        "✅ AI активен!",
-        parse_mode="Markdown"
-    )
-
-@dp.message()
-async def handle_message(message: types.Message):
-    if not message.text or message.text.startswith('/'):
-        return
-    
-    await bot.send_chat_action(message.chat.id, "typing")
-    await asyncio.sleep(1)
-    
-    print(f"📥 Запрос: {message.text}")
-    
-    try:
-        # Пробуем Gemini
-        ai_prediction = await get_gemini_prediction(message.text)
-        
-        if ai_prediction:
-            response = ai_prediction
-            print("✅ Использован AI")
-        else:
-            response = get_local_prediction(message.text)
-            print("✅ Использован локальный прогноз")
-        
-        await message.answer(response, parse_mode="Markdown")
-        
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        await message.answer(
-            f"⚽ **{message.text}**\n\nПрогноз: **{random.choice(['2-1', '1-0'])}**\n"
-            f"Вероятный исход: **победа одной из команд**",
-            parse_mode="Markdown"
-        )
-
-async def cleanup():
-    """Простая очистка"""
-    print("🔄 Очищаю соединения...")
-    
-    try:
-        # Просто удаляем вебхук
-        await bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Вебхук удален")
-        
-        # Ждем
-        await asyncio.sleep(3)
-        
-        # Пробуем получить обновления чтобы сбросить offset
-        try:
-            updates = await bot.get_updates(limit=1, timeout=1)
-            if updates:
-                await bot.get_updates(offset=updates[-1].update_id + 1, timeout=1)
-                print("✅ Offset сброшен")
-        except:
-            pass
-            
-    except Exception as e:
-        print(f"⚠️ Ошибка очистки: {e}")
-
-async def main():
-    print("=" * 50)
-    print("🤖 ЗАПУСК ФУТБОЛЬНОГО БОТА")
-    print("=" * 50)
-    
-    # Очистка
-    await cleanup()
-    
-    print("✅ Бот готов!")
+    print("✅ Бот готов к работе!")
     print("📱 Напишите /start в Telegram")
     print("=" * 50)
     
-    # Простой запуск
+    # Запускаем polling
     try:
-        await dp.start_polling(bot, skip_updates=True, polling_timeout=30)
+        await dp.start_polling(bot, skip_updates=True)
     except KeyboardInterrupt:
-        print("\n🛑 Бот остановлен")
+        print("\n🛑 Бот остановлен по запросу")
     except Exception as e:
         print(f"\n❌ Ошибка: {e}")
+    finally:
+        # Очистка блокировки
+        import os
+        lock_file = "/tmp/football_bot.lock"
+        if os.path.exists(lock_file):
+            os.unlink(lock_file)
+        print("🔒 Блокировка снята")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Завершение работы")
