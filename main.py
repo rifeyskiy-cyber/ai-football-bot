@@ -1,18 +1,20 @@
 import logging
 import asyncio
 import aiohttp
+import uuid  # Для создания уникального ID сессии
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.client.session.aiohttp import AiohttpSession
 
 # КЛЮЧИ
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
 AI_KEY = "AIzaSyDgW7ONTdXO_yiVTYlGs4Y_Q5VaGP0sano"
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+# Создаем уникальный ID для текущего запуска бота
+session_id = str(uuid.uuid4())[:8]
 
 async def get_ai_prediction(match_name):
-    # Самый надежный эндпоинт для 1.5-flash
+    # Стабильный эндпоинт для gemini-1.5-flash
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={AI_KEY}"
     
     payload = {
@@ -29,9 +31,13 @@ async def get_ai_prediction(match_name):
         except Exception as e:
             return f"❌ Ошибка сети: {str(e)}"
 
+# Инициализация бота с кастомной сессией
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("⚽️ Бот успешно перезапущен! Напиши матч.")
+    await message.answer(f"⚽️ Бот запущен! (Session: {session_id})\nНапиши название матча.")
 
 @dp.message()
 async def handle_msg(message: types.Message):
@@ -44,20 +50,23 @@ async def handle_msg(message: types.Message):
         logging.error(f"Error: {e}")
 
 async def main():
-    print("--- ЗАПУСК СИСТЕМЫ ОЧИСТКИ ---")
+    print(f"--- ЗАПУСК СЕССИИ {session_id} ---")
     
-    # 1. Мгновенный разрыв старых соединений через установку пустого вебхука
-    await bot.set_webhook(url='https://google.com', drop_pending_updates=True)
-    await asyncio.sleep(1)
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    # 2. Техническая пауза для сброса состояния на серверах Telegram
-    print("Ожидание стабилизации (10 секунд)...")
-    await asyncio.sleep(10) 
-
-    print(">>> БОТ АКТИВИРОВАН И ГОТОВ <<<")
+    # ПРИНУДИТЕЛЬНЫЙ РАЗРЫВ: устанавливаем и тут же удаляем вебхук
+    # Это мощнее, чем просто delete_webhook
     try:
-        # 3. Запуск основного цикла
+        await bot.set_webhook(url=f"https://example.com/{session_id}", drop_pending_updates=True)
+        await asyncio.sleep(2)
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("Старые соединения принудительно разорваны.")
+    except Exception as e:
+        print(f"Ошибка при очистке: {e}")
+    
+    # Даем Telegram 5 секунд на осознание смены режима
+    await asyncio.sleep(5) 
+
+    print(f">>> БОТ {session_id} ГОТОВ <<<")
+    try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
         await bot.session.close()
