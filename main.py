@@ -9,7 +9,7 @@ import logging
 from collections import defaultdict
 
 # === КОНФИГУРАЦИЯ ===
-TOKEN = "ВАШ_ТОКЕН"
+TOKEN = "8464793187:AAG7uSnp8uio6Ue13WuIdTWHCZJeCKzuLyM"
 AI_KEY = "AIzaSyDQsQynmKLfiQCwXyfsqNB45a7ctSwCjyA"
 
 # Логирование
