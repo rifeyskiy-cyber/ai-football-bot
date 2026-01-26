@@ -22,8 +22,7 @@ async def get_ai_prediction(match_name):
     # Варианты правильных URL:
     
     # Вариант 1 (рекомендуемый): Используем стабильную версию
-    # Проверочный URL для списка моделей
-url = f"https://generativelanguage.googleapis.com/v1beta/models?key={AI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={AI_KEY}"
     
     # Вариант 2 (альтернативный): Если первый не работает
     # url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={AI_KEY}"
