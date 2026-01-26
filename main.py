@@ -54,7 +54,7 @@ FOOTBALL_DATA = {
         "key_players": [
             {"name": "Доминик Калверт-Льюин", "position": "Нападающий", "status": "готов", "goals": 8},
             {"name": "Джаред Брантуэйт", "position": "Защитник", "status": "готов", "apps": 20},
-            {"name": "Джеймс Тарковски", "position": "Защитник", "status": "готов", "apps": 22},
+            {"name": "Джеймス Тарковски", "position": "Защитник", "status": "готов", "apps": 22},
             {"name": "Абдулай Дукуре", "position": "Полузащитник", "status": "травма", "return": "2 недели"}
         ],
         "coach": "Шон Дайч",
