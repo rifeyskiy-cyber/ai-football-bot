@@ -2,8 +2,7 @@ import logging
 import asyncio
 import aiohttp
 import uuid
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
+import sys  # Добавлен импорт sys
 
 # КЛЮЧИ
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
@@ -50,18 +49,22 @@ async def get_ai_prediction(match_name):
             logging.error(f"Ошибка в get_ai_prediction: {e}")
             return f"⚠️ Ошибка: {str(e)}"
 
-# Инициализация бота
-bot = Bot(token=TOKEN)
+# Инициализация бота с увеличением времени ожидания
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+
+bot = Bot(token=TOKEN, session_timeout=60)
 dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
-        f"⚽️ Футбольный аналитик бот запущен! (Сессия: {session_id})\n\n"
+        f"⚽️ Футбольный аналитик бот запущен!\n"
+        f"ID сессии: {session_id}\n\n"
         "Напиши название футбольного матча в формате:\n"
-        "• 'Барселона Реал Мадрид'\n"
-        "• 'Манчестер Юнайтед Ливерпуль'\n"
-        "• 'Зенит Спартак'\n\n"
+        "• Барселона Реал Мадрид\n"
+        "• Манчестер Юнайтед Ливерпуль\n"
+        "• Зенит Спартак\n\n"
         "Я проанализирую и дам прогноз на матч!"
     )
 
@@ -69,8 +72,16 @@ async def cmd_start(message: types.Message):
 async def cmd_help(message: types.Message):
     await message.answer(
         "📋 Просто напишите название матча!\n"
-        "Например: 'Арсенал Челси' или 'Бразилия Аргентина'"
+        "Например: 'Арсенал Челси' или 'Бразилия Аргентина'\n\n"
+        "Команды:\n"
+        "/start - Начать работу\n"
+        "/help - Помощь\n"
+        "/status - Статус бота"
     )
+
+@dp.message(Command("status"))
+async def cmd_status(message: types.Message):
+    await message.answer(f"✅ Бот работает\nID сессии: {session_id}\nСтатус: Активен")
 
 @dp.message()
 async def handle_msg(message: types.Message):
@@ -93,6 +104,41 @@ async def handle_msg(message: types.Message):
         logging.error(f"Error in handle_msg: {e}")
         await message.answer("❌ Произошла ошибка. Попробуйте еще раз.")
 
+async def cleanup_bot():
+    """Полная очистка перед запуском"""
+    print("🔄 Полная очистка состояния бота...")
+    
+    # Пытаемся удалить вебхук несколько раз
+    for i in range(3):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            print(f"✅ Попытка {i+1}: Вебхук удален")
+            
+            # Проверяем, что вебхук действительно удален
+            webhook_info = await bot.get_webhook_info()
+            if not webhook_info.url:
+                print("✅ Вебхук полностью удален")
+                break
+            else:
+                print(f"⚠️ Вебхук все еще активен: {webhook_info.url}")
+                await asyncio.sleep(2)
+        except Exception as e:
+            print(f"⚠️ Ошибка при удалении вебхука: {e}")
+            await asyncio.sleep(1)
+    
+    # Пробуем получить и сбросить последние обновления
+    try:
+        updates = await bot.get_updates(limit=1, timeout=1)
+        if updates:
+            last_update_id = updates[-1].update_id
+            # Сбрасываем offset
+            await bot.get_updates(offset=last_update_id + 1, timeout=1)
+            print(f"✅ Сброшен offset до {last_update_id + 1}")
+    except:
+        pass
+    
+    await asyncio.sleep(3)
+
 async def main():
     """Основная функция запуска бота"""
     # Настройка логирования
@@ -106,27 +152,24 @@ async def main():
     print(f"📱 Session ID: {session_id}")
     print(f"{'='*50}\n")
     
-    # Очистка перед запуском
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Вебхук удален")
-        await asyncio.sleep(2)
-    except Exception as e:
-        print(f"⚠️ Ошибка при очистке: {e}")
+    # Настройка event loop для Windows
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
-    print("🔄 Бот запускается...")
+    # Полная очистка перед запуском
+    await cleanup_bot()
+    
+    print("🤖 Бот запускается...")
     
     try:
-        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем правильный метод запуска
-        print("📡 Начинаю прослушивание сообщений...")
-        
-        # Запускаем polling с явными параметрами
+        # Запускаем polling с увеличенными таймаутами
         await dp.start_polling(
             bot,
-            skip_updates=True,  # Пропускаем старые сообщения
-            allowed_updates=["message", "callback_query"],  # Какие типы обновлений слушаем
-            polling_timeout=30,  # Таймаут для запросов
-            handle_signals=True  # Обработка сигналов (Ctrl+C)
+            skip_updates=True,
+            allowed_updates=["message"],
+            polling_timeout=60,
+            handle_signals=True,
+            close_bot_session=False
         )
         
     except KeyboardInterrupt:
@@ -142,16 +185,10 @@ async def main():
             pass
 
 if __name__ == "__main__":
-    # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Создаем event loop и запускаем бота
+    # Точка входа с обработкой ошибок
     try:
-        # Для Windows может потребоваться эта настройка
-        if sys.platform == "win32":
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-            
-        # Запускаем основную функцию
         asyncio.run(main())
-        
     except KeyboardInterrupt:
         print("\n👋 Программа завершена")
     except Exception as e:
-        print(f"❌ Фатальная ошибка: {e}")
+        print(f"❌ Фатальная ошибка при запуске: {e}")
