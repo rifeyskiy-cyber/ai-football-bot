@@ -1,181 +1,182 @@
 import asyncio
 import aiohttp
-import json
+import os
+import signal
+import sys
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-import logging
 
-# Настройка
+# КЛЮЧИ
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
 AI_KEY = "AIzaSyDgW7ONTdXO_yiVTYlGs4Y_Q5VaGP0sano"
 
-# Логирование
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-logger = logging.getLogger(__name__)
+print("=" * 60)
+print("🔥 ПОЛНЫЙ ПЕРЕЗАПУСК БОТА С ПРИНУДИТЕЛЬНЫМ СБРОСОМ")
+print("=" * 60)
 
-# Бот
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-
-async def force_cleanup():
-    """Принудительная очистка перед запуском"""
-    print("🔄 Принудительная очистка соединений...")
+async def complete_reset():
+    """Полный сброс состояния бота"""
+    print("\n🔄 ВЫПОЛНЯЮ ПОЛНЫЙ СБРОС...")
     
-    # Удаляем вебхук несколько раз
-    for i in range(3):
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            print(f"  ✅ Вебхук удален (попытка {i+1})")
-            await asyncio.sleep(1)
-        except Exception as e:
-            print(f"  ⚠️ Ошибка: {e}")
+    temp_bot = Bot(token=TOKEN)
     
-    # Получаем и сбрасываем последнее обновление
     try:
-        updates = await bot.get_updates(limit=1, timeout=1)
-        if updates:
-            last_id = updates[-1].update_id
-            await bot.get_updates(offset=last_id + 1, timeout=1)
-            print(f"  ✅ Сброшен offset до {last_id + 1}")
-    except:
-        pass
-    
-    await asyncio.sleep(2)
-    print("✅ Очистка завершена\n")
-
-async def get_ai_prediction(match_name):
-    """Получить прогноз от Gemini AI"""
-    # Используем модели из вашего списка (должны работать)
-    models_to_try = [
-        "gemini-2.0-flash",            # Быстрая и надежная
-        "gemini-2.0-flash-001",        # Стабильная версия
-        "gemini-flash-latest",         # Последняя flash версия
-        "gemini-pro-latest",           # Последняя pro версия
-        "gemini-2.0-flash-lite",       # Облегченная версия
-        "gemini-2.0-flash-exp",        # Экспериментальная
-        "gemini-2.5-flash",            # Новая версия 2.5
-        "gemini-2.5-pro",              # Pro версия 2.5
-    ]
-    
-    headers = {"Content-Type": "application/json"}
-    
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={AI_KEY}"
+        # 1. Удаляем вебхук многократно
+        for i in range(5):
+            try:
+                await temp_bot.delete_webhook(drop_pending_updates=True)
+                print(f"  ✅ Вебхук удален ({i+1}/5)")
+                await asyncio.sleep(0.5)
+            except:
+                pass
         
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": f"Ты футбольный аналитик. Проанализируй матч '{match_name}'. Кто победит и вероятный счет? Ответь кратко, 2-3 предложения. Только прогноз, без лишних слов."
-                }]
-            }],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 150
-            }
-        }
-        
+        # 2. Получаем текущие обновления и сбрасываем offset
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=10) as resp:
+            # Запрашиваем обновления с очень старым offset
+            updates = await temp_bot.get_updates(offset=-10000, timeout=1)
+            if updates:
+                last_id = updates[-1].update_id
+                # Сбрасываем offset ЗА последним обновлением
+                await temp_bot.get_updates(offset=last_id + 100, timeout=1)
+                print(f"  ✅ Offset сброшен до {last_id + 100}")
+        except:
+            pass
+        
+        # 3. Устанавливаем пустой вебхук и сразу удаляем
+        try:
+            await temp_bot.set_webhook(
+                url="https://example.com/temp",
+                drop_pending_updates=True,
+                max_connections=1
+            )
+            await asyncio.sleep(0.5)
+            await temp_bot.delete_webhook(drop_pending_updates=True)
+            print("  ✅ Вебхук переустановлен и удален")
+        except:
+            pass
+        
+        # 4. Долгая пауза для Telegram
+        print("  ⏳ Жду 5 секунд для сброса на стороне Telegram...")
+        await asyncio.sleep(5)
+        
+    finally:
+        await temp_bot.session.close()
+    
+    print("✅ ПОЛНЫЙ СБРОС ЗАВЕРШЕН\n")
+
+async def get_prediction_simple(match_name):
+    """Упрощенный запрос к Gemini"""
+    # Используем гарантированно работающую модель
+    model = "gemini-2.0-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={AI_KEY}"
+    
+    payload = {
+        "contents": [{
+            "parts": [{
+                "text": f"Ты футбольный эксперт. Матч: {match_name}. Кто победит и какой счет? Ответь очень кратко."
+            }]
+        }]
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=8) as resp:
+                if resp.status == 200:
                     data = await resp.json()
-                    
-                    if resp.status == 200:
-                        if 'candidates' in data and len(data['candidates']) > 0:
-                            prediction = data['candidates'][0]['content']['parts'][0]['text']
-                            print(f"✅ Успешно использована модель: {model_name}")
-                            return prediction
-                    
-                    # Пробуем следующую модель
-                    print(f"⚠️ Модель {model_name} не сработала (статус: {resp.status})")
-                    continue
-                        
-        except Exception as e:
-            print(f"❌ Ошибка с моделью {model_name}: {e}")
-            continue
+                    return data['candidates'][0]['content']['parts'][0]['text']
+    except Exception as e:
+        print(f"⚠️ Ошибка AI: {e}")
     
-    # Если ни одна модель не сработала
-    return "⚽ Анализ матча показывает равные шансы обеих команд. Вероятный счет 1-1 или 2-1 в пользу одной из команд."
+    # Запасной ответ
+    return "⚽ Вероятная победа одной из команд со счетом 2-1 или 1-0."
 
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    await message.answer(
-        "⚽ Футбольный аналитик бот работает!\n\n"
-        "Напишите название матча, например:\n"
-        "• Эвертон Лидс\n"
-        "• Барселона Реал\n"
-        "• Арсенал Челси\n\n"
-        "Я дам краткий прогноз на матч."
-    )
-
-@dp.message(Command("test"))
-async def test_cmd(message: types.Message):
-    """Тестовая команда для проверки работы AI"""
-    await message.answer("🔍 Тестирую подключение к AI...")
+async def run_single_instance():
+    """Запуск одного уникального экземпляра"""
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
     
-    test_prediction = await get_ai_prediction("Барселона Реал Мадрид тестовый матч")
-    await message.answer(f"🧪 Тестовый результат:\n{test_prediction}")
-
-@dp.message()
-async def handle_message(message: types.Message):
-    if not message.text or message.text.startswith('/'):
-        return
+    # Генерируем уникальный ID для этого экземпляра
+    import uuid
+    instance_id = str(uuid.uuid4())[:6]
+    print(f"📱 ID этого экземпляра: {instance_id}")
     
-    # Отправляем статус "печатает"
-    await bot.send_chat_action(message.chat.id, "typing")
+    @dp.message(Command("start"))
+    async def start(message: types.Message):
+        await message.answer(f"⚽ Бот работает! (ID: {instance_id})\nНапишите матч.")
     
-    # Получаем прогноз
-    prediction = await get_ai_prediction(message.text)
+    @dp.message(Command("id"))
+    async def get_id(message: types.Message):
+        await message.answer(f"🆔 ID экземпляра: {instance_id}")
     
-    # Форматируем ответ
-    response = f"⚽ **Матч:** {message.text}\n\n{prediction}"
-    await message.answer(response, parse_mode="Markdown")
-
-async def main():
-    """Запуск бота"""
-    print("=" * 50)
-    print("🚀 ЗАПУСК ФУТБОЛЬНОГО БОТА")
-    print("=" * 50)
+    @dp.message()
+    async def handle(message: types.Message):
+        if not message.text or message.text.startswith('/'):
+            return
+        
+        await bot.send_chat_action(message.chat.id, "typing")
+        
+        # Короткая пауза для имитации обработки
+        await asyncio.sleep(0.5)
+        
+        prediction = await get_prediction_simple(message.text)
+        await message.answer(f"⚽ {message.text}\n\n{prediction}")
     
-    # Принудительная очистка перед запуском
-    await force_cleanup()
+    # ЗАПУСК С УНИКАЛЬНЫМИ ПАРАМЕТРАМИ
+    print(f"\n🚀 Запускаю экземпляр {instance_id}...")
     
-    print("🔍 Доступные модели Gemini (сокращенный список):")
-    print("• gemini-2.0-flash")
-    print("• gemini-2.0-flash-001")
-    print("• gemini-flash-latest")
-    print("• gemini-pro-latest")
-    print("• gemini-2.5-flash")
-    print("• gemini-2.5-pro")
-    print()
-    
-    # Запускаем polling с увеличенным timeout
-    print("🤖 Бот запускается...")
-    
+    # Используем специальные параметры для избежания конфликтов
     try:
-        # Специальные параметры для избежания конфликтов
         await dp.start_polling(
             bot,
             skip_updates=True,
             allowed_updates=["message"],
-            polling_timeout=90,  # Увеличенный таймаут
-            handle_signals=True,
-            close_bot_session=False,
-            relax=1  # Задержка между запросами
+            polling_timeout=30,
+            relax=0.1,
+            handle_signals=False  # Сами обрабатываем сигналы
         )
-    except KeyboardInterrupt:
-        print("\n⏹️ Бот остановлен")
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"❌ Ошибка polling: {e}")
     finally:
-        print("🔄 Завершение работы...")
+        await bot.session.close()
+        print(f"\n🛑 Экземпляр {instance_id} остановлен")
+
+async def main():
+    """Основная функция"""
+    print("\n🔧 ШАГ 1: Полный сброс состояния")
+    await complete_reset()
+    
+    print("🔧 ШАГ 2: Запуск единственного экземпляра")
+    print("   ⚠️  Убедитесь, что других экземпляров НЕТ!")
+    print("   ⚠️  Если видите ошибку конфликта - остановите ВСЕ процессы бота")
+    print()
+    
+    # Даем пользователю время на чтение
+    await asyncio.sleep(2)
+    
+    # Запускаем единственный экземпляр
+    await run_single_instance()
+
+def signal_handler(signum, frame):
+    """Обработчик сигналов для корректного завершения"""
+    print(f"\n🛑 Получен сигнал {signum}. Завершаю работу...")
+    sys.exit(0)
 
 if __name__ == "__main__":
-    # Устанавливаем политику event loop для Windows если нужно
+    # Регистрируем обработчики сигналов
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Настройка event loop
     try:
-        import sys
         if sys.platform == "win32":
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     except:
         pass
     
-    asyncio.run(main())
+    # Запускаем
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Завершение по запросу пользователя")
+    except Exception as e:
+        print(f"\n💥 Критическая ошибка: {e}")
