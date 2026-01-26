@@ -12,7 +12,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 async def get_ai_prediction(match_name):
-    # Используем v1beta и актуальную модель gemini-2.0-flash
+    # Используем v1beta и актуальную модель gemini-1.5-flash
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={AI_KEY}"
     
     payload = {
