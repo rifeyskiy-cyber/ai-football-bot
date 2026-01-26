@@ -4,21 +4,21 @@ import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 
-# ТОКЕНЫ
+# КЛЮЧИ
 TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
-AI_KEY = "AIzaSyCxbp-5hb2S8gQAgocG00Yak4n_D-Oq5VQ"
+AI_KEY = "AIzaSyDgW7ONTdXO_yiVTYlGs4Y_Q5VaGP0sano"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 async def get_ai_prediction(match_name):
-    # Используем v1beta и актуальную модель gemini-1.5-flash
+    # Используем v1beta и модель 1.5-flash против ошибок 404 и лимитов
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={AI_KEY}"
     
     payload = {
         "contents": [{
             "parts": [{
-                "text": f"Ты футбольный аналитик. Проанализируй матч {match_name}. Напиши вероятный исход и счет. Отвечай кратко."
+                "text": f"Ты футбольный аналитик. Дай краткий прогноз на матч: {match_name}. Кто победит и какой вероятный счет?"
             }]
         }]
     }
@@ -37,24 +37,26 @@ async def get_ai_prediction(match_name):
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("⚽️ Бот готов! Напиши название футбольного матча.")
+    await message.answer("⚽️ Бот запущен и готов к прогнозам! Просто напиши название матча.")
 
 @dp.message()
 async def handle_msg(message: types.Message):
-    if not message.text:
-        return
+    if not message.text: return
     try:
         await bot.send_chat_action(message.chat.id, "typing")
         prediction = await get_ai_prediction(message.text)
         await message.answer(prediction)
     except Exception as e:
-        logging.error(f"Error: {e}")
+        logging.error(f"Ошибка: {e}")
 
 async def main():
-    # Очистка сессий для устранения ConflictError
     print("Уничтожение старых сессий...")
+    # Очищаем вебхуки
     await bot.delete_webhook(drop_pending_updates=True)
-    await asyncio.sleep(2) 
+    
+    # Ждем, пока облако завершит старые процессы, чтобы избежать ConflictError
+    print("Ожидание стабилизации (15 секунд)...")
+    await asyncio.sleep(15) 
 
     print(">>> БОТ ЗАПУЩЕН НАПРЯМУЮ <<<")
     try:
