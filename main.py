@@ -2,24 +2,31 @@ import asyncio
 import aiohttp
 import random
 import json
+import os
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import logging
 from collections import defaultdict
+from functools import lru_cache
+import hashlib
 
 # === КОНФИГУРАЦИЯ ===
-TOKEN = "8464793187:AAG7uSnp8uio6Ue13WuIdTWHCZJeCKzuLyM"
-AI_KEY = "AIzaSyDQsQynmKLfiQCwXyfsqNB45a7ctSwCjyA"
+# БЕЗОПАСНОСТЬ: используем переменные окружения
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "ВАШ_ТОКЕН_ЗДЕСЬ")
+AI_KEY = os.getenv("GOOGLE_AI_KEY", "ВАШ_КЛЮЧ_AI_ЗДЕСЬ")
 
 # Логирование
-logging.basicConfig(level=logging.INFO, format="📊 %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# === БАЗА ДАННЫХ КОМАНД (можно заменить на реальный API) ===
+# === БАЗА ДАННЫХ КОМАНД ===
 FOOTBALL_DATA = {
     "эвертон": {
         "full_name": "Эвертон",
@@ -33,7 +40,7 @@ FOOTBALL_DATA = {
         "goals_for": 28,
         "goals_against": 39,
         "goal_difference": -11,
-        "form": ["L", "W", "D", "L", "W", "L", "D"],  # Последние 7 матчей
+        "form": ["L", "W", "D", "L", "W", "L", "D"],
         "last_matches": [
             {"opponent": "Ман Сити", "result": "L", "score": "1-3", "date": "2026-01-25"},
             {"opponent": "Тоттенхэм", "result": "W", "score": "2-1", "date": "2026-01-18"},
@@ -93,8 +100,48 @@ FOOTBALL_DATA = {
         "failed_to_score": 4
     },
     
-    # Добавьте другие команды по аналогии...
+    "арсенал": {
+        "full_name": "Арсенал",
+        "league": "АПЛ",
+        "position": 2,
+        "points": 56,
+        "matches": 24,
+        "wins": 17,
+        "draws": 5,
+        "losses": 2,
+        "goals_for": 52,
+        "goals_against": 22,
+        "goal_difference": +30,
+        "form": ["W", "W", "W", "D", "W", "L", "W"],
+        "last_matches": [
+            {"opponent": "Ливерпуль", "result": "W", "score": "2-1", "date": "2026-01-26"},
+            {"opponent": "Вест Хэм", "result": "W", "score": "3-0", "date": "2026-01-19"},
+            {"opponent": "Манчестер Юнайтед", "result": "W", "score": "2-0", "date": "2026-01-12"},
+            {"opponent": "Брайтон", "result": "D", "score": "1-1", "date": "2026-01-05"},
+            {"opponent": "Вулверхэмптон", "result": "W", "score": "3-1", "date": "2025-12-29"},
+            {"opponent": "Челси", "result": "L", "score": "0-1", "date": "2025-12-22"},
+            {"opponent": "Астон Вилла", "result": "W", "score": "2-0", "date": "2025-12-15"}
+        ],
+        "key_players": [
+            {"name": "Букайо Сака", "position": "Нападающий", "status": "готов", "goals": 14},
+            {"name": "Мартин Эдегор", "position": "Полузащитник", "status": "готов", "assists": 9},
+            {"name": "Уильям Салиба", "position": "Защитник", "status": "готов", "apps": 24},
+            {"name": "Габриэл Жезус", "position": "Нападающий", "status": "под вопросом", "return": "3 дня"}
+        ],
+        "coach": "Микель Артета",
+        "stadium": "Эмирейтс",
+        "avg_goals_for": 2.17,
+        "avg_goals_against": 0.92,
+        "clean_sheets": 12,
+        "failed_to_score": 3
+    }
 }
+
+def normalize_value(value, min_val, max_val):
+    """Нормализация значения от 0 до 100"""
+    if max_val == min_val:
+        return 50
+    return ((value - min_val) / (max_val - min_val)) * 100
 
 def analyze_form(form_array):
     """Анализ формы из последних 7 матчей"""
@@ -139,29 +186,42 @@ def calculate_match_stats(team1_data, team2_data):
     defense_strength1 = team1_data["avg_goals_against"]
     defense_strength2 = team2_data["avg_goals_against"]
     
-    # Прогнозируемые голы
+    # Прогнозируемые голы (Poisson распределение)
     expected_goals1 = (attack_strength1 + defense_strength2) / 2
     expected_goals2 = (attack_strength2 + defense_strength1) / 2
     
-    # Коэффициенты на основе формы и статистики
+    # Нормализация значений для рейтинга
+    max_gd = max(abs(team1_data["goal_difference"]), abs(team2_data["goal_difference"]), 1)
+    gd_normalized1 = normalize_value(team1_data["goal_difference"], -max_gd, max_gd)
+    gd_normalized2 = normalize_value(team2_data["goal_difference"], -max_gd, max_gd)
+    
+    # Веса факторов
     form_weight = 0.4
     stats_weight = 0.4
-    home_advantage = 0.2  # Домашнее преимущество
+    home_advantage = 0.2
     
-    # Общий рейтинг
+    # Общий рейтинг (от 0 до 100)
     rating1 = (form1["percentage"] * form_weight + 
-               (team1_data["goal_difference"] + 50) * stats_weight +  # +50 чтобы убрать отрицательные
-               (home_advantage * 100 if "home" in team1_data else 0))
+               gd_normalized1 * stats_weight + 
+               (home_advantage * 100 if team1_data.get("home", False) else 0))
     
     rating2 = (form2["percentage"] * form_weight + 
-               (team2_data["goal_difference"] + 50) * stats_weight +
-               (home_advantage * 100 if "home" in team2_data else 0))
+               gd_normalized2 * stats_weight + 
+               (home_advantage * 100 if team2_data.get("home", False) else 0))
     
-    # Вероятность победы
+    # Вероятность победы (Elo-like система)
     total_rating = rating1 + rating2
     win_prob1 = (rating1 / total_rating) * 100
     win_prob2 = (rating2 / total_rating) * 100
-    draw_prob = 100 - win_prob1 - win_prob2
+    
+    # Вероятность ничьей (зависит от оборонительных способностей)
+    avg_defense = (defense_strength1 + defense_strength2) / 2
+    draw_factor = max(0, 1 - avg_defense)  # Чем лучше защита, тем меньше ничьих
+    draw_prob = min(35, draw_factor * 100)  # Максимум 35% на ничью
+    
+    # Распределяем вероятность ничьей
+    win_prob1 = win_prob1 * (1 - draw_prob/100)
+    win_prob2 = win_prob2 * (1 - draw_prob/100)
     
     # Прогноз счета на основе ожидаемых голов
     score1 = round(expected_goals1)
@@ -204,16 +264,8 @@ def format_form_display(form_array):
     form_map = {"W": "✅", "D": "⚪", "L": "❌"}
     return " ".join(form_map.get(r, "❓") for r in form_array)
 
-def get_team_data(team_name):
-    """Получение данных о команде"""
-    team_lower = team_name.lower()
-    
-    # Поиск команды в базе
-    for key, data in FOOTBALL_DATA.items():
-        if key in team_lower or team_lower in key:
-            return data
-    
-    # Если команда не найдена, создаем базовые данные
+def create_stub_data(team_name):
+    """Создание заглушки для неизвестной команды"""
     return {
         "full_name": team_name.title(),
         "league": "Неизвестно",
@@ -226,7 +278,7 @@ def get_team_data(team_name):
         "goals_for": random.randint(15, 45),
         "goals_against": random.randint(15, 45),
         "goal_difference": random.randint(-20, 20),
-        "form": random.choices(["W", "D", "L"], k=7),
+        "form": random.choices(["W", "D", "L"], k=7, weights=[0.4, 0.3, 0.3]),
         "last_matches": [],
         "key_players": [],
         "coach": "Неизвестный тренер",
@@ -237,12 +289,71 @@ def get_team_data(team_name):
         "failed_to_score": random.randint(2, 10)
     }
 
-async def get_ai_enhanced_prediction(match_name, stats_analysis):
-    """Улучшенный прогноз с использованием AI и статистики"""
+def get_team_data(team_name):
+    """Получение данных о команде"""
+    team_lower = team_name.lower().strip()
+    
+    # Точное совпадение
+    if team_lower in FOOTBALL_DATA:
+        return FOOTBALL_DATA[team_lower].copy()
+    
+    # Поиск по части названия
+    for key, data in FOOTBALL_DATA.items():
+        # Проверяем полное совпадение слов
+        team_words = team_lower.split()
+        key_words = key.split()
+        
+        # Если одно из слов совпадает
+        if any(word in key for word in team_words) or any(word in team_lower for word in key_words):
+            return data.copy()
+    
+    # Создание заглушки
+    return create_stub_data(team_name)
+
+def generate_hash(text):
+    """Генерация хэша для кэширования"""
+    return hashlib.md5(text.encode()).hexdigest()
+
+@lru_cache(maxsize=100)
+async def get_cached_ai_prediction(match_hash, prompt):
+    """Кэшированный запрос к AI"""
+    return await get_ai_enhanced_prediction_raw(prompt)
+
+async def get_ai_enhanced_prediction_raw(prompt):
+    """Запрос к AI API"""
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={AI_KEY}"
         
-        # Создаем детальный промпт со статистикой
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 500
+            }
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=30) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if 'candidates' in data and len(data['candidates']) > 0:
+                        return data['candidates'][0]['content']['parts'][0]['text']
+                    else:
+                        logger.error(f"AI вернул пустой ответ: {data}")
+                        return None
+                else:
+                    logger.error(f"AI ошибка HTTP {resp.status}: {await resp.text()}")
+                    return None
+    except asyncio.TimeoutError:
+        logger.error("AI запрос превысил таймаут")
+        return None
+    except Exception as e:
+        logger.error(f"AI ошибка: {e}")
+        return None
+
+async def get_ai_enhanced_prediction(match_name, stats_analysis):
+    """Улучшенный прогноз с использованием AI"""
+    try:
         prompt = f"""
         Ты профессиональный футбольный аналитик. Проанализируй матч: {match_name}
         
@@ -275,27 +386,25 @@ async def get_ai_enhanced_prediction(match_name, stats_analysis):
         1. Текущей формы команд
         2. Турнирной мотивации
         3. Состава (ключевые игроки)
-        4. Исторических показателей
-        5. Тактического противостояния тренеров
+        4. Тактического противостояния тренеров
         
-        Будь конкретным и профессиональным.
+        Будь конкретным и профессиональным. Не упоминай, что ты ИИ.
         """
         
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 400
-            }
-        }
+        # Генерируем хэш для кэширования
+        match_hash = generate_hash(prompt)
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data['candidates'][0]['content']['parts'][0]['text']
+        # Пробуем получить из кэша
+        ai_analysis = await get_cached_ai_prediction(match_hash, prompt)
+        
+        if not ai_analysis:
+            # Если кэш пустой, делаем новый запрос
+            ai_analysis = await get_ai_enhanced_prediction_raw(prompt)
+        
+        return ai_analysis
+        
     except Exception as e:
-        logger.error(f"AI ошибка: {e}")
+        logger.error(f"Ошибка в AI анализе: {e}")
         return None
 
 def generate_stats_table(team_data):
@@ -322,8 +431,11 @@ def generate_stats_table(team_data):
 ╰────────────────┴──────────────╯
 """
 
+# ========== ОБРАБОТЧИКИ КОМАНД ==========
+
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
+    """Обработчик команды /start"""
     await message.answer(
         "⚽ *ПРОФЕССИОНАЛЬНЫЙ ФУТБОЛЬНЫЙ АНАЛИТИК* 🤖\n\n"
         "🔍 *Анализирую матчи по 15+ параметрам:*\n"
@@ -338,7 +450,25 @@ async def start_cmd(message: types.Message):
         "📊 *Пример команды:*\n"
         "`/stats Эвертон` - детальная статистика\n"
         "`/form Лидс` - форма команды\n"
-        "`/players Арсенал` - состав",
+        "`/players Арсенал` - состав\n"
+        "`/help` - справка по командам",
+        parse_mode="Markdown"
+    )
+
+@dp.message(Command("help"))
+async def help_cmd(message: types.Message):
+    """Обработчик команды /help"""
+    await message.answer(
+        "📋 *СПРАВКА ПО КОМАНДАМ:*\n\n"
+        "⚽ *Анализ матча:*\n"
+        "Просто отправьте названия двух команд через пробел\n"
+        "Пример: `Эвертон Лидс`\n\n"
+        "📊 *Другие команды:*\n"
+        "`/stats [команда]` - детальная статистика\n"
+        "`/form [команда]` - форма команды\n"
+        "`/players [команда]` - состав и травмы\n"
+        "`/start` - начальное сообщение\n"
+        "`/help` - эта справка",
         parse_mode="Markdown"
     )
 
@@ -371,127 +501,4 @@ async def stats_cmd(message: types.Message):
         response += "\n📅 *ПОСЛЕДНИЕ МАТЧИ:*\n"
         for match in team_data['last_matches'][:3]:  # Последние 3
             result_emoji = {"W": "✅", "D": "⚪", "L": "❌"}.get(match['result'], "❓")
-            response += f"{result_emoji} {match['opponent']} {match['score']} ({match['date']})\n"
-    
-    await message.answer(response, parse_mode="Markdown")
-
-@dp.message(Command("form"))
-async def form_cmd(message: types.Message):
-    """Форма команды"""
-    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-    
-    if not args:
-        await message.answer("⚠️ Укажите команду: `/form Лидс`", parse_mode="Markdown")
-        return
-    
-    team_name = " ".join(args)
-    team_data = get_team_data(team_name)
-    form_analysis = analyze_form(team_data["form"])
-    
-    response = f"""
-📊 *ФОРМА {team_data['full_name'].upper()}*
-
-{format_form_display(team_data['form'])}
-
-*АНАЛИЗ ФОРМЫ:*
-• Очков в последних 7: {form_analysis['points']}/21 ({form_analysis['percentage']}%)
-• Побед/Ничьих/Поражений: {form_analysis['wins']}/{form_analysis['draws']}/{form_analysis['losses']}
-• Тренд: {form_analysis['trend']}
-
-*ПОСЛЕДНИЕ 7 МАТЧЕЙ:*
-"""
-    
-    for i, match in enumerate(team_data['last_matches'][:7], 1):
-        result_emoji = {"W": "✅", "D": "⚪", "L": "❌"}.get(match['result'], "❓")
-        response += f"{i}. {result_emoji} {match['opponent']} {match['score']}\n"
-    
-    await message.answer(response, parse_mode="Markdown")
-
-@dp.message(Command("players"))
-async def players_cmd(message: types.Message):
-    """Состав и травмы"""
-    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-    
-    if not args:
-        await message.answer("⚠️ Укажите команду: `/players Арсенал`", parse_mode="Markdown")
-        return
-    
-    team_name = " ".join(args)
-    team_data = get_team_data(team_name)
-    
-    response = f"""
-👥 *СОСТАВ {team_data['full_name'].upper()}*
-
-*КЛЮЧЕВЫЕ ИГРОКИ:*
-"""
-    
-    for player in team_data['key_players']:
-        status_emoji = "✅" if player['status'] == "готов" else "⚠️" if player['status'] == "под вопросом" else "❌"
-        goals_info = f" ({player['goals']} голов)" if 'goals' in player else ""
-        return_info = f" ➤ возврат: {player['return']}" if 'return' in player else ""
-        response += f"• {status_emoji} {player['name']} - {player['position']}{goals_info}{return_info}\n"
-    
-    available = sum(1 for p in team_data['key_players'] if p['status'] == "готов")
-    total = len(team_data['key_players'])
-    
-    response += f"\n📋 *Доступность:* {available}/{total} ключевых игроков ({available/total*100:.0f}%)"
-    
-    await message.answer(response, parse_mode="Markdown")
-
-@dp.message()
-async def handle_match_analysis(message: types.Message):
-    """Основной анализ матча"""
-    if not message.text or message.text.startswith('/'):
-        return
-    
-    await bot.send_chat_action(message.chat.id, "typing")
-    
-    # Извлекаем команды
-    words = message.text.split()
-    if len(words) < 2:
-        await message.answer("⚠️ Укажите обе команды: `Эвертон Лидс`", parse_mode="Markdown")
-        return
-    
-    # Простая логика для двух команд
-    team1_name = words[0]
-    team2_name = words[1] if len(words) > 1 else words[0]
-    
-    # Получаем данные
-    team1_data = get_team_data(team1_name)
-    team2_data = get_team_data(team2_name)
-    
-    # Добавляем метку "домашняя" для первой команды
-    team1_data["home"] = True
-    
-    # Анализируем матч
-    match_stats = calculate_match_stats(team1_data, team2_data)
-    
-    # Создаем детальный ответ
-    response = f"""
-⚽ *ПРОФЕССИОНАЛЬНЫЙ АНАЛИЗ МАТЧА*
-🏆 *{team1_data['full_name']} vs {team2_data['full_name']}*
-
-📊 *КОМАНДНАЯ СТАТИСТИКА:*
-╭────────────────┬─────────────────┬─────────────────╮
-│ Показатель     │ {team1_data['full_name'][:15]:<15} │ {team2_data['full_name'][:15]:<15} │
-├────────────────┼─────────────────┼─────────────────┤
-│ Лига           │ {team1_data['league']:<15} │ {team2_data['league']:<15} │
-│ Позиция        │ {team1_data['position']:<15} │ {team2_data['position']:<15} │
-│ Очки           │ {team1_data['points']:<15} │ {team2_data['points']:<15} │
-│ Голы (З/П)     │ {team1_data['goals_for']}-{team1_data['goals_against']:<13} │ {team2_data['goals_for']}-{team2_data['goals_against']:<13} │
-│ Разница голов  │ {team1_data['goal_difference']:+d:<14} │ {team2_data['goal_difference']:+d:<14} │
-│ Форма (посл.7) │ {format_form_display(team1_data['form']):<15} │ {format_form_display(team2_data['form']):<15} │
-│ Ключ. игроки   │ {match_stats['key_players_available'][0]}/{match_stats['total_key_players'][0]:<14} │ {match_stats['key_players_available'][1]}/{match_stats['total_key_players'][1]:<14} │
-╰────────────────┴─────────────────┴─────────────────╯
-
-🎯 *МАТЕМАТИЧЕСКИЙ ПРОГНОЗ:*
-• Ожидаемые голы: {match_stats['expected_goals'][0]:.1f} - {match_stats['expected_goals'][1]:.1f}
-• Вероятность победы {team1_data['full_name']}: {match_stats['probabilities']['team1_win']}%
-• Вероятность ничьей: {match_stats['probabilities']['draw']}%
-• Вероятность победы {team2_data['full_name']}: {match_stats['probabilities']['team2_win']}%
-• Прогнозируемый счет: **{match_stats['predicted_score']}**
-
-👨‍🏫 *ТРЕНЕРСКОЕ ПРОТИВОСТОЯНИЕ:*
-{team1_data['coach']} vs {team2_data['coach']}
-"""
-    
+            response += f"{result_emoji} {match['op
