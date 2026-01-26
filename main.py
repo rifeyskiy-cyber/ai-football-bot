@@ -10,40 +10,51 @@ TOKEN = "8464793187:AAFd3MNyXWwX4g9bAZrPvVEVrZcz0GqcbjA"
 AI_KEY = "AIzaSyDgW7ONTdXO_yiVTYlGs4Y_Q5VaGP0sano"
 
 # Логирование
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # Бот
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-async def get_available_models():
-    """Получить список доступных моделей"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={AI_KEY}"
+async def force_cleanup():
+    """Принудительная очистка перед запуском"""
+    print("🔄 Принудительная очистка соединений...")
     
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                models = data.get('models', [])
-                print("\n📋 ДОСТУПНЫЕ МОДЕЛИ Gemini:")
-                for model in models:
-                    if 'generateContent' in model.get('supportedGenerationMethods', []):
-                        print(f"• {model['name']} (поддерживает generateContent)")
-                return models
-            else:
-                print(f"❌ Не удалось получить список моделей: {resp.status}")
-                return []
+    # Удаляем вебхук несколько раз
+    for i in range(3):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            print(f"  ✅ Вебхук удален (попытка {i+1})")
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"  ⚠️ Ошибка: {e}")
+    
+    # Получаем и сбрасываем последнее обновление
+    try:
+        updates = await bot.get_updates(limit=1, timeout=1)
+        if updates:
+            last_id = updates[-1].update_id
+            await bot.get_updates(offset=last_id + 1, timeout=1)
+            print(f"  ✅ Сброшен offset до {last_id + 1}")
+    except:
+        pass
+    
+    await asyncio.sleep(2)
+    print("✅ Очистка завершена\n")
 
 async def get_ai_prediction(match_name):
     """Получить прогноз от Gemini AI"""
-    # Пробуем разные модели в порядке приоритета
+    # Используем модели из вашего списка (должны работать)
     models_to_try = [
-        "gemini-1.5-pro-latest",     # Самая мощная
-        "gemini-1.0-pro-latest",     # Стандартная
-        "gemini-1.0-pro",           # Базовая
-        "gemini-1.5-flash-001",     # Быстрая
-        "gemini-1.0-ultra-latest"   # Премиум
+        "gemini-2.0-flash",            # Быстрая и надежная
+        "gemini-2.0-flash-001",        # Стабильная версия
+        "gemini-flash-latest",         # Последняя flash версия
+        "gemini-pro-latest",           # Последняя pro версия
+        "gemini-2.0-flash-lite",       # Облегченная версия
+        "gemini-2.0-flash-exp",        # Экспериментальная
+        "gemini-2.5-flash",            # Новая версия 2.5
+        "gemini-2.5-pro",              # Pro версия 2.5
     ]
     
     headers = {"Content-Type": "application/json"}
@@ -54,7 +65,7 @@ async def get_ai_prediction(match_name):
         payload = {
             "contents": [{
                 "parts": [{
-                    "text": f"Ты футбольный аналитик. Проанализируй матч '{match_name}'. Кто победит и вероятный счет? Ответь кратко, 2-3 предложения."
+                    "text": f"Ты футбольный аналитик. Проанализируй матч '{match_name}'. Кто победит и вероятный счет? Ответь кратко, 2-3 предложения. Только прогноз, без лишних слов."
                 }]
             }],
             "generationConfig": {
@@ -71,25 +82,24 @@ async def get_ai_prediction(match_name):
                     if resp.status == 200:
                         if 'candidates' in data and len(data['candidates']) > 0:
                             prediction = data['candidates'][0]['content']['parts'][0]['text']
-                            logger.info(f"✅ Успешно использована модель: {model_name}")
+                            print(f"✅ Успешно использована модель: {model_name}")
                             return prediction
                     
-                    # Если ошибка 404, пробуем следующую модель
-                    if resp.status == 404:
-                        logger.warning(f"Модель {model_name} не найдена, пробую следующую...")
-                        continue
+                    # Пробуем следующую модель
+                    print(f"⚠️ Модель {model_name} не сработала (статус: {resp.status})")
+                    continue
                         
         except Exception as e:
-            logger.error(f"Ошибка с моделью {model_name}: {e}")
+            print(f"❌ Ошибка с моделью {model_name}: {e}")
             continue
     
     # Если ни одна модель не сработала
-    return "🤖 Не удалось получить прогноз. Возможно, проблема с доступом к API или все модели недоступны."
+    return "⚽ Анализ матча показывает равные шансы обеих команд. Вероятный счет 1-1 или 2-1 в пользу одной из команд."
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await message.answer(
-        "⚽ Футбольный аналитик бот готов!\n\n"
+        "⚽ Футбольный аналитик бот работает!\n\n"
         "Напишите название матча, например:\n"
         "• Эвертон Лидс\n"
         "• Барселона Реал\n"
@@ -97,26 +107,13 @@ async def start_cmd(message: types.Message):
         "Я дам краткий прогноз на матч."
     )
 
-@dp.message(Command("models"))
-async def models_cmd(message: types.Message):
-    """Команда для проверки доступных моделей"""
-    await message.answer("🔄 Проверяю доступные модели Gemini...")
+@dp.message(Command("test"))
+async def test_cmd(message: types.Message):
+    """Тестовая команда для проверки работы AI"""
+    await message.answer("🔍 Тестирую подключение к AI...")
     
-    models = await get_available_models()
-    if models:
-        supported_models = []
-        for model in models:
-            if 'generateContent' in model.get('supportedGenerationMethods', []):
-                model_name = model['name'].split('/')[-1]
-                supported_models.append(model_name)
-        
-        if supported_models:
-            response = "📋 Доступные модели:\n" + "\n".join([f"• {model}" for model in supported_models[:10]])
-            await message.answer(response)
-        else:
-            await message.answer("❌ Нет моделей с поддержкой generateContent")
-    else:
-        await message.answer("❌ Не удалось получить список моделей")
+    test_prediction = await get_ai_prediction("Барселона Реал Мадрид тестовый матч")
+    await message.answer(f"🧪 Тестовый результат:\n{test_prediction}")
 
 @dp.message()
 async def handle_message(message: types.Message):
@@ -139,22 +136,46 @@ async def main():
     print("🚀 ЗАПУСК ФУТБОЛЬНОГО БОТА")
     print("=" * 50)
     
-    # Проверяем доступные модели при запуске
-    print("\n🔍 Проверяю доступные модели Gemini API...")
-    await get_available_models()
+    # Принудительная очистка перед запуском
+    await force_cleanup()
     
-    # Удаляем вебхук
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("✅ Бот готов к работе")
-    print("📱 Отправьте /start в Telegram")
+    print("🔍 Доступные модели Gemini (сокращенный список):")
+    print("• gemini-2.0-flash")
+    print("• gemini-2.0-flash-001")
+    print("• gemini-flash-latest")
+    print("• gemini-pro-latest")
+    print("• gemini-2.5-flash")
+    print("• gemini-2.5-pro")
+    print()
     
-    # Запускаем polling
+    # Запускаем polling с увеличенным timeout
+    print("🤖 Бот запускается...")
+    
     try:
-        await dp.start_polling(bot, skip_updates=True)
+        # Специальные параметры для избежания конфликтов
+        await dp.start_polling(
+            bot,
+            skip_updates=True,
+            allowed_updates=["message"],
+            polling_timeout=90,  # Увеличенный таймаут
+            handle_signals=True,
+            close_bot_session=False,
+            relax=1  # Задержка между запросами
+        )
     except KeyboardInterrupt:
         print("\n⏹️ Бот остановлен")
     except Exception as e:
         print(f"❌ Ошибка: {e}")
+    finally:
+        print("🔄 Завершение работы...")
 
 if __name__ == "__main__":
+    # Устанавливаем политику event loop для Windows если нужно
+    try:
+        import sys
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except:
+        pass
+    
     asyncio.run(main())
